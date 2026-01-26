@@ -1,0 +1,20 @@
+# Binaries
+browser_tail
+*.exe
+
+# Output directories
+logs/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test coverage
+coverage.out
+coverage.html
