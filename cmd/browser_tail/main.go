@@ -19,7 +19,10 @@ import (
 	"github.com/ajsharma/browser_tail/internal/logger"
 )
 
-var cfg = config.DefaultConfig()
+var (
+	cfg        = config.DefaultConfig()
+	configFile string
+)
 
 var rootCmd = &cobra.Command{
 	Use:   "browser_tail",
@@ -82,6 +85,9 @@ func init() {
 
 	// Version flag
 	rootCmd.Version = config.Version
+
+	// Config file flag
+	rootCmd.Flags().StringVar(&configFile, "config", "", "Path to YAML config file")
 
 	// Add control command
 	rootCmd.AddCommand(controlCmd)
@@ -350,7 +356,21 @@ func init() {
 }
 
 func run(cmd *cobra.Command, args []string) error {
-	// Handle --no-* flags
+	// Load config from file if specified
+	if configFile != "" {
+		fileCfg, err := config.LoadFromFile(configFile)
+		if err != nil {
+			return fmt.Errorf("failed to load config file: %w", err)
+		}
+		cfg = fileCfg
+	}
+
+	// Validate configuration
+	if err := cfg.Validate(); err != nil {
+		return fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	// Handle --no-* flags (these override config file)
 	if noNetwork, _ := cmd.Flags().GetBool("no-network"); noNetwork {
 		cfg.EnableNetwork = false
 	}
