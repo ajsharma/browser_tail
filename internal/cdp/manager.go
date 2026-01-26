@@ -26,7 +26,14 @@ type Manager struct {
 	mu            sync.RWMutex
 	browserCtx    context.Context
 	browserCancel context.CancelFunc
+	connected     bool
 }
+
+// Connection retry settings.
+const (
+	reconnectInterval = 5 * time.Second
+	maxReconnectWait  = 30 * time.Second
+)
 
 // NewManager creates a new CDP Manager.
 func NewManager(cfg *config.Config, fm *logger.FileManager) *Manager {
@@ -38,7 +45,7 @@ func NewManager(cfg *config.Config, fm *logger.FileManager) *Manager {
 	}
 }
 
-// Start begins monitoring Chrome.
+// Start begins monitoring Chrome with automatic reconnection.
 func (m *Manager) Start(ctx context.Context) error {
 	// Auto-launch Chrome if requested
 	if m.config.AutoLaunch {
@@ -71,6 +78,50 @@ func (m *Manager) Start(ctx context.Context) error {
 		log.Printf("Warning: failed to write session start event: %v", err)
 	}
 
+	// Reconnection loop
+	retryWait := reconnectInterval
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		default:
+		}
+
+		err := m.connect(ctx)
+		if err == nil {
+			// Connection successful, reset retry wait
+			retryWait = reconnectInterval
+			m.connected = true
+
+			// Wait for disconnection or context cancellation
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-m.browserCtx.Done():
+				// Browser disconnected, will retry
+				m.connected = false
+				log.Printf("Chrome disconnected, will retry in %v...", retryWait)
+			}
+		} else {
+			log.Printf("Failed to connect to Chrome: %v", err)
+		}
+
+		// Wait before retrying (with backoff)
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(retryWait):
+			// Increase retry wait with backoff, up to max
+			retryWait = retryWait * 2
+			if retryWait > maxReconnectWait {
+				retryWait = maxReconnectWait
+			}
+		}
+	}
+}
+
+// connect establishes a connection to Chrome and starts monitoring.
+func (m *Manager) connect(ctx context.Context) error {
 	// Step 1: Initial discovery via /json (ONE-TIME)
 	initialTabs, err := DiscoverTabs(m.config.ChromePort)
 	if err != nil {
@@ -87,13 +138,20 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	// Step 2: Connect to browser-level CDP for target events
 	allocatorCtx, allocatorCancel := chromedp.NewRemoteAllocator(ctx, browserInfo.WebSocketDebuggerURL)
-	defer allocatorCancel()
 
 	m.browserCtx, m.browserCancel = chromedp.NewContext(allocatorCtx)
-	defer m.browserCancel()
+
+	// Clean up on disconnect
+	go func() {
+		<-m.browserCtx.Done()
+		allocatorCancel()
+		m.clearTabMonitors()
+	}()
 
 	// Step 3: Enable target discovery (NO POLLING)
 	if err := chromedp.Run(m.browserCtx, target.SetDiscoverTargets(true)); err != nil {
+		m.browserCancel()
+		allocatorCancel()
 		return fmt.Errorf("failed to enable target discovery: %w", err)
 	}
 
@@ -131,10 +189,22 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	log.Printf("Monitoring started (session: %s)", m.tabRegistry.GetSessionID())
 
-	// Block until context cancelled
-	<-ctx.Done()
-
 	return nil
+}
+
+// clearTabMonitors stops and removes all tab monitors.
+func (m *Manager) clearTabMonitors() {
+	m.mu.Lock()
+	monitors := make([]*monitor.TabMonitor, 0, len(m.tabMonitors))
+	for _, mon := range m.tabMonitors {
+		monitors = append(monitors, mon)
+	}
+	m.tabMonitors = make(map[string]*monitor.TabMonitor)
+	m.mu.Unlock()
+
+	for _, mon := range monitors {
+		mon.Stop()
+	}
 }
 
 // handleNewTarget starts monitoring a new tab.
@@ -257,4 +327,11 @@ func (m *Manager) GetActiveTabCount() int {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return len(m.tabMonitors)
+}
+
+// IsConnected returns whether the manager is connected to Chrome.
+func (m *Manager) IsConnected() bool {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.connected
 }

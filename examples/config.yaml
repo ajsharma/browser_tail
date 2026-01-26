@@ -1,0 +1,81 @@
+# browser_tail configuration file
+# Copy this file and modify as needed, then run:
+#   browser_tail --config config.yaml
+
+# =============================================================================
+# Connection Settings
+# =============================================================================
+
+# Chrome remote debugging port (default: 9222)
+chrome_port: "9222"
+
+# Auto-launch Chrome with debugging enabled (default: false)
+# If false, you must start Chrome manually with --remote-debugging-port=9222
+auto_launch: false
+
+# =============================================================================
+# Output Settings
+# =============================================================================
+
+# Output directory for log files (default: ./logs)
+# Logs are organized as: <output_dir>/<site>/<tab_id>/session.log
+output_dir: "./logs"
+
+# Flush interval for log buffering (default: 100ms)
+# Lower values = more real-time but higher I/O
+# Higher values = better performance but delayed writes
+flush_interval: 100ms
+
+# Buffer size per tab in bytes (default: 8192)
+# Larger buffers reduce I/O but use more memory
+buffer_size: 8192
+
+# =============================================================================
+# Privacy Settings
+# =============================================================================
+
+# Enable header and body redaction (default: true)
+# When enabled, sensitive data is replaced with [REDACTED]
+# Redacted headers: Cookie, Authorization, X-API-Key, etc.
+# Redacted body fields: password, token, secret, api_key, etc.
+redact: true
+
+# =============================================================================
+# Body Capture Settings
+# =============================================================================
+
+# Capture request/response bodies (default: false)
+# Only captures text/* and application/json content types
+# Large responses are skipped based on body_size_limit_kb
+capture_bodies: false
+
+# Maximum body size to capture in KB (default: 10)
+# Bodies larger than this are not captured
+body_size_limit_kb: 10
+
+# Content types to capture (default: text/*, application/json)
+# Supports wildcards like "text/*"
+body_content_types:
+  - "text/*"
+  - "application/json"
+  - "application/xml"
+
+# =============================================================================
+# Event Filtering
+# =============================================================================
+
+# Enable network events (default: true)
+# Includes: network.request, network.response, network.failure
+enable_network: true
+
+# Enable console events (default: true)
+# Includes: console.log, console.warn, console.error, console.info, console.debug
+enable_console: true
+
+# Enable error events (default: true)
+# Includes: error.runtime, error.unhandled_promise
+enable_errors: true
+
+# Enable page events (default: true)
+# Includes: page.navigate, page.load, page.dom_ready
+enable_page: true
