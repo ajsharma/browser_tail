@@ -32,6 +32,7 @@ linters:
     - forcetypeassert  # Type assertions in switch are fine
     - gocognit         # Complexity is managed manually
     - cyclop           # Cyclomatic complexity is managed manually
+    - gocyclo          # Cyclomatic complexity is managed manually
     - maintidx         # Maintainability index is subjective
     - noctx            # HTTP without context is fine for local calls
     - err113           # Dynamic errors are fine for this tool
@@ -67,7 +68,15 @@ issues:
       linters:
         - revive
       text: "unused-parameter"
+    # Allow fmt.Print in CLI commands (expected for output)
+    - path: cmd/
+      linters:
+        - forbidigo
     # Allow unchecked errors in test files
     - path: _test\.go
       linters:
         - errcheck
+    # Allow perfsprint suggestions in cmd/ (clarity over micro-optimization)
+    - path: cmd/
+      linters:
+        - perfsprint

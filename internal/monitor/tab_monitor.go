@@ -3,6 +3,7 @@ package monitor
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
@@ -15,7 +16,15 @@ import (
 	"github.com/ajsharma/browser_tail/internal/config"
 	"github.com/ajsharma/browser_tail/internal/events"
 	"github.com/ajsharma/browser_tail/internal/logger"
+	"github.com/ajsharma/browser_tail/internal/redact"
 )
+
+// responseInfo stores response metadata for body capture.
+type responseInfo struct {
+	URL         string
+	MimeType    string
+	ContentSize float64
+}
 
 // TabMonitor monitors a single browser tab.
 type TabMonitor struct {
@@ -29,6 +38,14 @@ type TabMonitor struct {
 
 	fileManager *logger.FileManager
 	config      *config.Config
+	redactor    *redact.Redactor
+
+	// Request tracking for body capture.
+	requestTracker map[network.RequestID]*responseInfo
+	trackerMu      sync.RWMutex
+
+	// Target context for CDP commands.
+	targetCtx context.Context
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -45,17 +62,19 @@ func NewTabMonitor(
 	ctx, cancel := context.WithCancel(parentCtx)
 
 	return &TabMonitor{
-		targetID:    targetID,
-		tabID:       tabID,
-		currentSite: site,
-		currentURL:  url,
-		title:       title,
-		sessionID:   sessionID,
-		startTime:   time.Now(),
-		fileManager: fm,
-		config:      cfg,
-		ctx:         ctx,
-		cancel:      cancel,
+		targetID:       targetID,
+		tabID:          tabID,
+		currentSite:    site,
+		currentURL:     url,
+		title:          title,
+		sessionID:      sessionID,
+		startTime:      time.Now(),
+		fileManager:    fm,
+		config:         cfg,
+		redactor:       redact.New(cfg.Redact),
+		requestTracker: make(map[network.RequestID]*responseInfo),
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 }
 
@@ -66,6 +85,9 @@ func (tm *TabMonitor) Start(browserCtx context.Context) error {
 		chromedp.WithTargetID(target.ID(tm.targetID)),
 	)
 	defer cancel()
+
+	// Store targetCtx for body capture
+	tm.targetCtx = targetCtx
 
 	// Enable required CDP domains
 	if err := chromedp.Run(targetCtx,
@@ -169,6 +191,9 @@ func (tm *TabMonitor) handleEvent(ev interface{}) {
 				headers[k] = v
 			}
 
+			// Apply redaction to headers.
+			headers = tm.redactor.RedactHeaders(headers)
+
 			tm.writeEvent(events.NewLogEvent(site, tabID, events.EventNetworkResponse, map[string]interface{}{
 				"request_id":     ev.RequestID.String(),
 				"url":            ev.Response.URL,
@@ -178,6 +203,32 @@ func (tm *TabMonitor) handleEvent(ev interface{}) {
 				"headers":        headers,
 				"encoded_length": ev.Response.EncodedDataLength,
 			}))
+
+			// Store response info for body capture if enabled
+			if cfg.CaptureBodies && tm.shouldCaptureBody(ev.Response.MimeType, ev.Response.EncodedDataLength) {
+				tm.trackerMu.Lock()
+				tm.requestTracker[ev.RequestID] = &responseInfo{
+					URL:         ev.Response.URL,
+					MimeType:    ev.Response.MimeType,
+					ContentSize: ev.Response.EncodedDataLength,
+				}
+				tm.trackerMu.Unlock()
+			}
+		}
+
+	case *network.EventLoadingFinished:
+		// Capture body after loading finished (if configured)
+		if cfg.EnableNetwork && cfg.CaptureBodies {
+			tm.trackerMu.Lock()
+			info, exists := tm.requestTracker[ev.RequestID]
+			if exists {
+				delete(tm.requestTracker, ev.RequestID)
+			}
+			tm.trackerMu.Unlock()
+
+			if exists {
+				go tm.captureBody(ev.RequestID, info, site, tabID)
+			}
 		}
 
 	case *network.EventLoadingFailed:
@@ -239,6 +290,81 @@ func (tm *TabMonitor) handleEvent(ev interface{}) {
 func (tm *TabMonitor) writeEvent(ev *events.LogEvent) {
 	// Errors are non-fatal - monitoring continues even if writes fail
 	_ = tm.fileManager.WriteEvent(tm.tabID, ev)
+}
+
+// shouldCaptureBody checks if response body should be captured based on content type and size.
+func (tm *TabMonitor) shouldCaptureBody(mimeType string, size float64) bool {
+	// Check size limit
+	maxSize := float64(tm.config.BodySizeLimitKB * 1024)
+	if size > maxSize && size > 0 {
+		return false
+	}
+
+	// Check content type against whitelist
+	mimeType = strings.ToLower(mimeType)
+	for _, allowed := range tm.config.BodyContentTypes {
+		if matchContentType(mimeType, allowed) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// matchContentType checks if a mime type matches a pattern (supports wildcards like "text/*").
+func matchContentType(actual, pattern string) bool {
+	// Remove parameters (e.g., "text/html; charset=utf-8" → "text/html")
+	if idx := strings.Index(actual, ";"); idx != -1 {
+		actual = strings.TrimSpace(actual[:idx])
+	}
+
+	// Handle wildcards
+	if strings.HasSuffix(pattern, "/*") {
+		prefix := strings.TrimSuffix(pattern, "/*")
+		return strings.HasPrefix(actual, prefix+"/")
+	}
+
+	return actual == pattern
+}
+
+// captureBody retrieves and logs the response body.
+func (tm *TabMonitor) captureBody(requestID network.RequestID, info *responseInfo, site, tabID string) {
+	if tm.targetCtx == nil {
+		return
+	}
+
+	// Get response body via CDP
+	var body []byte
+	var base64Encoded bool
+
+	err := chromedp.Run(tm.targetCtx, chromedp.ActionFunc(func(ctx context.Context) error {
+		result, err := network.GetResponseBody(requestID).Do(ctx)
+		if err != nil {
+			return err
+		}
+		body = result
+		// Check if the response was base64 encoded (binary content)
+		// The CDP returns raw bytes, we'll encode text as-is
+		base64Encoded = false
+		return nil
+	}))
+	if err != nil {
+		// Body capture failed (response may have been cleared from cache)
+		return
+	}
+
+	// Apply redaction to body content.
+	bodyStr := string(body)
+	bodyStr = tm.redactor.RedactBody(bodyStr)
+
+	// Log the body as a separate event.
+	tm.writeEvent(events.NewLogEvent(site, tabID, events.EventNetworkResponseBody, map[string]interface{}{
+		"request_id":     requestID.String(),
+		"url":            info.URL,
+		"mime_type":      info.MimeType,
+		"base64_encoded": base64Encoded,
+		"body":           bodyStr,
+	}))
 }
 
 // HandleSiteChange handles navigation to a different site.

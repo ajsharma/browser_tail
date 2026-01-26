@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"os"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/ajsharma/browser_tail/internal/cdp"
 	"github.com/ajsharma/browser_tail/internal/config"
+	"github.com/ajsharma/browser_tail/internal/control"
 	"github.com/ajsharma/browser_tail/internal/logger"
 )
 
@@ -80,6 +82,271 @@ func init() {
 
 	// Version flag
 	rootCmd.Version = config.Version
+
+	// Add control command
+	rootCmd.AddCommand(controlCmd)
+}
+
+// Control command variables.
+var (
+	controlPort    string
+	controlTimeout time.Duration
+)
+
+var controlCmd = &cobra.Command{
+	Use:   "control",
+	Short: "Control browser via CDP commands",
+	Long: `Send commands to control the browser for automated testing.
+Requires Chrome to be running with remote debugging enabled.
+
+Example:
+  browser_tail control navigate --url https://example.com
+  browser_tail control click --selector "button#submit"
+  browser_tail control type --selector "input[name=q]" --text "search query"
+  browser_tail control eval --js "document.title"`,
+}
+
+var navigateCmd = &cobra.Command{
+	Use:   "navigate",
+	Short: "Navigate to a URL",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		url, _ := cmd.Flags().GetString("url")
+		if url == "" {
+			return fmt.Errorf("--url is required")
+		}
+
+		ctrl, err := control.NewController(controlPort)
+		if err != nil {
+			return fmt.Errorf("failed to connect: %w", err)
+		}
+		defer ctrl.Close()
+		ctrl.SetTimeout(controlTimeout)
+
+		if err := ctrl.Navigate(url); err != nil {
+			return fmt.Errorf("navigate failed: %w", err)
+		}
+
+		fmt.Printf("Navigated to: %s\n", url)
+		return nil
+	},
+}
+
+var clickCmd = &cobra.Command{
+	Use:   "click",
+	Short: "Click an element",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		selector, _ := cmd.Flags().GetString("selector")
+		if selector == "" {
+			return fmt.Errorf("--selector is required")
+		}
+
+		ctrl, err := control.NewController(controlPort)
+		if err != nil {
+			return fmt.Errorf("failed to connect: %w", err)
+		}
+		defer ctrl.Close()
+		ctrl.SetTimeout(controlTimeout)
+
+		if err := ctrl.Click(selector); err != nil {
+			return fmt.Errorf("click failed: %w", err)
+		}
+
+		fmt.Printf("Clicked: %s\n", selector)
+		return nil
+	},
+}
+
+var typeCmd = &cobra.Command{
+	Use:   "type",
+	Short: "Type text into an element",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		selector, _ := cmd.Flags().GetString("selector")
+		text, _ := cmd.Flags().GetString("text")
+		if selector == "" {
+			return fmt.Errorf("--selector is required")
+		}
+		if text == "" {
+			return fmt.Errorf("--text is required")
+		}
+
+		ctrl, err := control.NewController(controlPort)
+		if err != nil {
+			return fmt.Errorf("failed to connect: %w", err)
+		}
+		defer ctrl.Close()
+		ctrl.SetTimeout(controlTimeout)
+
+		if err := ctrl.Type(selector, text); err != nil {
+			return fmt.Errorf("type failed: %w", err)
+		}
+
+		fmt.Printf("Typed into %s: %s\n", selector, text)
+		return nil
+	},
+}
+
+var evalCmd = &cobra.Command{
+	Use:   "eval",
+	Short: "Evaluate JavaScript",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		js, _ := cmd.Flags().GetString("js")
+		if js == "" {
+			return fmt.Errorf("--js is required")
+		}
+
+		ctrl, err := control.NewController(controlPort)
+		if err != nil {
+			return fmt.Errorf("failed to connect: %w", err)
+		}
+		defer ctrl.Close()
+		ctrl.SetTimeout(controlTimeout)
+
+		result, err := ctrl.Evaluate(js)
+		if err != nil {
+			return fmt.Errorf("eval failed: %w", err)
+		}
+
+		fmt.Println(result)
+		return nil
+	},
+}
+
+var screenshotCmd = &cobra.Command{
+	Use:   "screenshot",
+	Short: "Capture a screenshot",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		output, _ := cmd.Flags().GetString("output")
+		if output == "" {
+			output = "screenshot.png"
+		}
+
+		ctrl, err := control.NewController(controlPort)
+		if err != nil {
+			return fmt.Errorf("failed to connect: %w", err)
+		}
+		defer ctrl.Close()
+		ctrl.SetTimeout(controlTimeout)
+
+		data, err := ctrl.Screenshot()
+		if err != nil {
+			return fmt.Errorf("screenshot failed: %w", err)
+		}
+
+		if output == "-" {
+			// Output base64 to stdout
+			fmt.Println(base64.StdEncoding.EncodeToString(data))
+		} else {
+			if err := os.WriteFile(output, data, 0o644); err != nil {
+				return fmt.Errorf("failed to write file: %w", err)
+			}
+			fmt.Printf("Screenshot saved to: %s\n", output)
+		}
+
+		return nil
+	},
+}
+
+var titleCmd = &cobra.Command{
+	Use:   "title",
+	Short: "Get page title",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctrl, err := control.NewController(controlPort)
+		if err != nil {
+			return fmt.Errorf("failed to connect: %w", err)
+		}
+		defer ctrl.Close()
+		ctrl.SetTimeout(controlTimeout)
+
+		title, err := ctrl.GetTitle()
+		if err != nil {
+			return fmt.Errorf("failed to get title: %w", err)
+		}
+
+		fmt.Println(title)
+		return nil
+	},
+}
+
+var urlCmd = &cobra.Command{
+	Use:   "url",
+	Short: "Get current URL",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctrl, err := control.NewController(controlPort)
+		if err != nil {
+			return fmt.Errorf("failed to connect: %w", err)
+		}
+		defer ctrl.Close()
+		ctrl.SetTimeout(controlTimeout)
+
+		url, err := ctrl.GetURL()
+		if err != nil {
+			return fmt.Errorf("failed to get URL: %w", err)
+		}
+
+		fmt.Println(url)
+		return nil
+	},
+}
+
+var textCmd = &cobra.Command{
+	Use:   "text",
+	Short: "Get text content of an element",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		selector, _ := cmd.Flags().GetString("selector")
+		if selector == "" {
+			return fmt.Errorf("--selector is required")
+		}
+
+		ctrl, err := control.NewController(controlPort)
+		if err != nil {
+			return fmt.Errorf("failed to connect: %w", err)
+		}
+		defer ctrl.Close()
+		ctrl.SetTimeout(controlTimeout)
+
+		text, err := ctrl.GetText(selector)
+		if err != nil {
+			return fmt.Errorf("failed to get text: %w", err)
+		}
+
+		fmt.Println(text)
+		return nil
+	},
+}
+
+func init() {
+	// Control command flags
+	controlCmd.PersistentFlags().StringVarP(&controlPort, "port", "p", "9222", "Chrome remote debugging port")
+	controlCmd.PersistentFlags().DurationVarP(&controlTimeout, "timeout", "t", 30*time.Second, "Command timeout")
+
+	// Navigate flags
+	navigateCmd.Flags().String("url", "", "URL to navigate to")
+
+	// Click flags
+	clickCmd.Flags().String("selector", "", "CSS selector of element to click")
+
+	// Type flags
+	typeCmd.Flags().String("selector", "", "CSS selector of element")
+	typeCmd.Flags().String("text", "", "Text to type")
+
+	// Eval flags
+	evalCmd.Flags().String("js", "", "JavaScript to evaluate")
+
+	// Screenshot flags
+	screenshotCmd.Flags().StringP("output", "o", "screenshot.png", "Output file (use - for base64 stdout)")
+
+	// Text flags
+	textCmd.Flags().String("selector", "", "CSS selector of element")
+
+	// Add subcommands
+	controlCmd.AddCommand(navigateCmd)
+	controlCmd.AddCommand(clickCmd)
+	controlCmd.AddCommand(typeCmd)
+	controlCmd.AddCommand(evalCmd)
+	controlCmd.AddCommand(screenshotCmd)
+	controlCmd.AddCommand(titleCmd)
+	controlCmd.AddCommand(urlCmd)
+	controlCmd.AddCommand(textCmd)
 }
 
 func run(cmd *cobra.Command, args []string) error {
