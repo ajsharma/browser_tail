@@ -1,0 +1,73 @@
+run:
+  timeout: 5m
+
+linters:
+  enable-all: true
+  disable:
+    # Deprecated linters
+    - exhaustivestruct
+    - gomnd            # Deprecated, replaced by mnd
+    # These are overly strict for this project
+    - depguard         # We need third-party deps
+    - varnamelen       # Short variable names are fine in small scopes
+    - wsl              # Whitespace style is subjective
+    - wrapcheck        # Not all errors need wrapping
+    - funlen           # Function length limits are too strict
+    - gochecknoglobals # We use globals for config
+    - gochecknoinits   # We use init for setup
+    - exhaustruct      # Don't require all struct fields
+    - nlreturn         # Don't require newline before return
+    - ireturn          # Interface returns are fine
+    - mnd              # Magic numbers are fine in some contexts
+    - lll              # Line length limit is too strict
+    - godox            # TODO comments are fine
+    - tagliatelle      # JSON tag style is fine
+    - nonamedreturns   # Named returns are fine
+    - interfacebloat   # Interface size limits are subjective
+    - contextcheck     # False positives with chromedp
+    - containedctx     # Context in struct is intentional for our design
+    - paralleltest     # Not all tests need t.Parallel()
+    - testpackage      # Internal tests are fine
+    - dupl             # Some duplication is acceptable
+    - forcetypeassert  # Type assertions in switch are fine
+    - gocognit         # Complexity is managed manually
+    - cyclop           # Cyclomatic complexity is managed manually
+    - maintidx         # Maintainability index is subjective
+    - noctx            # HTTP without context is fine for local calls
+    - err113           # Dynamic errors are fine for this tool
+    - exhaustive       # Not all switch cases need to be handled
+    - gci              # Import grouping style is subjective
+    - gocritic         # Some suggestions are overly pedantic
+    - intrange         # Go 1.22 feature not required
+    - usetesting       # os.MkdirTemp is fine in tests
+    - gosec            # Security checks are overly sensitive for local tool
+
+linters-settings:
+  goconst:
+    min-occurrences: 3
+    ignore-tests: true
+  revive:
+    rules:
+      - name: empty-block
+        disabled: true
+      - name: unused-parameter
+        disabled: false
+  errcheck:
+    check-blank: false
+    exclude-functions:
+      - (io.Closer).Close
+      - (*os.File).Close
+
+issues:
+  exclude-use-default: false
+  max-same-issues: 10
+  exclude-rules:
+    # Allow unused parameters in command handlers
+    - path: cmd/
+      linters:
+        - revive
+      text: "unused-parameter"
+    # Allow unchecked errors in test files
+    - path: _test\.go
+      linters:
+        - errcheck

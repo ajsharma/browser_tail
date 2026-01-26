@@ -1,0 +1,116 @@
+package cdp
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"time"
+)
+
+// TargetTypePage is the CDP target type for browser pages.
+const TargetTypePage = "page"
+
+// Tab represents a Chrome tab/target discovered via CDP.
+type Tab struct {
+	TargetID string
+	Type     string
+	Title    string
+	URL      string
+}
+
+// BrowserInfo holds information about the connected Chrome instance.
+type BrowserInfo struct {
+	Browser              string `json:"Browser"`
+	ProtocolVersion      string `json:"Protocol-Version"`
+	UserAgent            string `json:"User-Agent"`
+	V8Version            string `json:"V8-Version"`
+	WebKitVersion        string `json:"WebKit-Version"`
+	WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
+}
+
+// targetJSON represents the JSON response from /json endpoint.
+type targetJSON struct {
+	ID                   string `json:"id"`
+	Type                 string `json:"type"`
+	Title                string `json:"title"`
+	URL                  string `json:"url"`
+	WebSocketDebuggerURL string `json:"webSocketDebuggerUrl"`
+	DevtoolsFrontendURL  string `json:"devtoolsFrontendUrl"`
+}
+
+// DiscoverBrowserInfo queries the /json/version endpoint to get browser info.
+func DiscoverBrowserInfo(port string) (*BrowserInfo, error) {
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	resp, err := client.Get(fmt.Sprintf("http://localhost:%s/json/version", port))
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to Chrome on port %s: %w", port, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	var info BrowserInfo
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return nil, fmt.Errorf("failed to decode browser info: %w", err)
+	}
+
+	return &info, nil
+}
+
+// DiscoverTabs queries the /json endpoint to discover all open tabs.
+// This should be called ONCE for initial discovery; ongoing monitoring uses CDP events.
+func DiscoverTabs(port string) ([]*Tab, error) {
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	resp, err := client.Get(fmt.Sprintf("http://localhost:%s/json", port))
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to Chrome on port %s: %w", port, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+	}
+
+	var targets []targetJSON
+	if err := json.NewDecoder(resp.Body).Decode(&targets); err != nil {
+		return nil, fmt.Errorf("failed to decode targets: %w", err)
+	}
+
+	var tabs []*Tab
+	for _, target := range targets {
+		// Only include page targets
+		if target.Type == TargetTypePage {
+			tabs = append(tabs, &Tab{
+				TargetID: target.ID,
+				Type:     target.Type,
+				Title:    target.Title,
+				URL:      target.URL,
+			})
+		}
+	}
+
+	return tabs, nil
+}
+
+// WaitForChrome waits for Chrome to be available on the specified port.
+func WaitForChrome(port string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	client := &http.Client{Timeout: 1 * time.Second}
+
+	for time.Now().Before(deadline) {
+		resp, err := client.Get(fmt.Sprintf("http://localhost:%s/json/version", port))
+		if err == nil {
+			resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return nil
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	return fmt.Errorf("chrome not available on port %s after %v", port, timeout)
+}
