@@ -18,15 +18,18 @@ import (
 
 // Manager orchestrates CDP connections and tab monitoring.
 type Manager struct {
-	config        *config.Config
-	fileManager   *logger.FileManager
-	tabRegistry   *logger.TabRegistry
-	chromeProcess *ChromeProcess
-	tabMonitors   map[string]*monitor.TabMonitor // targetID -> monitor
-	mu            sync.RWMutex
-	browserCtx    context.Context
-	browserCancel context.CancelFunc
-	connected     bool
+	config           *config.Config
+	fileManager      *logger.FileManager
+	tabRegistry      *logger.TabRegistry
+	chromeProcess    *ChromeProcess
+	tabMonitors      map[string]*monitor.TabMonitor // targetID -> monitor
+	mu               sync.RWMutex
+	allocatorCtx     context.Context
+	allocatorCancel  context.CancelFunc
+	browserCtx       context.Context
+	browserCancel    context.CancelFunc
+	internalTargetID string // our internal anchor tab
+	connected        bool
 }
 
 // Connection retry settings.
@@ -136,55 +139,71 @@ func (m *Manager) connect(ctx context.Context) error {
 		return fmt.Errorf("failed to get browser info: %w", err)
 	}
 
-	// Step 2: Connect to browser-level CDP for target events
-	allocatorCtx, allocatorCancel := chromedp.NewRemoteAllocator(ctx, browserInfo.WebSocketDebuggerURL)
+	// Step 2: Connect to browser-level CDP
+	// Keep allocator context alive - it represents the browser connection
+	m.allocatorCtx, m.allocatorCancel = chromedp.NewRemoteAllocator(ctx, browserInfo.WebSocketDebuggerURL)
 
-	m.browserCtx, m.browserCancel = chromedp.NewContext(allocatorCtx)
+	// Create browser context
+	m.browserCtx, m.browserCancel = chromedp.NewContext(m.allocatorCtx)
 
-	// Clean up on disconnect
-	go func() {
-		<-m.browserCtx.Done()
-		allocatorCancel()
-		m.clearTabMonitors()
-	}()
-
-	// Step 3: Enable target discovery (NO POLLING)
+	// Step 3: Enable target discovery (this also initializes the browser connection)
+	// IMPORTANT: Must call Run to initialize c.Browser before ListenBrowser will work
 	if err := chromedp.Run(m.browserCtx, target.SetDiscoverTargets(true)); err != nil {
 		m.browserCancel()
-		allocatorCancel()
+		m.allocatorCancel()
 		return fmt.Errorf("failed to enable target discovery: %w", err)
 	}
 
-	// Step 4: Listen for target events (REAL-TIME)
+	// Track our internal target ID so we don't monitor it as a user tab
+	c := chromedp.FromContext(m.browserCtx)
+	if c.Target != nil {
+		m.internalTargetID = string(c.Target.TargetID)
+		log.Printf("Using internal anchor tab: %s", m.internalTargetID[:8])
+	}
+
+	// Step 4: Set up listener for target events
+	// ListenTarget receives target domain events (targetCreated, targetDestroyed, etc.)
+	// This listener is tied to our internal anchor tab - survives user tab closures
 	chromedp.ListenTarget(m.browserCtx, func(ev interface{}) {
 		switch ev := ev.(type) {
 		case *target.EventTargetCreated:
-			// Only monitor page targets that are not yet attached
-			if ev.TargetInfo.Type == TargetTypePage && !ev.TargetInfo.Attached {
+			// Only monitor page targets, skip our internal anchor
+			if ev.TargetInfo.Type == TargetTypePage && string(ev.TargetInfo.TargetID) != m.internalTargetID {
 				m.handleNewTarget(ctx, ev.TargetInfo)
 			}
 
 		case *target.EventTargetDestroyed:
-			// Tab closed - Manager owns this event
-			m.handleTargetDestroyed(string(ev.TargetID))
+			// Skip destruction of our internal anchor
+			if string(ev.TargetID) != m.internalTargetID {
+				m.handleTargetDestroyed(string(ev.TargetID))
+			}
 
 		case *target.EventTargetInfoChanged:
-			// Tab URL/title changed
-			if ev.TargetInfo.Type == TargetTypePage {
+			// Tab URL/title changed, skip our internal anchor
+			if ev.TargetInfo.Type == TargetTypePage && string(ev.TargetInfo.TargetID) != m.internalTargetID {
 				m.handleTargetInfoChanged(ev.TargetInfo)
 			}
 		}
 	})
 
-	// Start monitoring existing tabs
+	// Clean up on disconnect
+	go func() {
+		<-m.browserCtx.Done()
+		m.allocatorCancel()
+		m.clearTabMonitors()
+	}()
+
+	// Start monitoring existing tabs (filter out our internal anchor)
 	for _, tab := range initialTabs {
-		m.handleNewTarget(ctx, &target.Info{
-			TargetID: target.ID(tab.TargetID),
-			Type:     tab.Type,
-			Title:    tab.Title,
-			URL:      tab.URL,
-			Attached: false,
-		})
+		if tab.TargetID != m.internalTargetID {
+			m.handleNewTarget(ctx, &target.Info{
+				TargetID: target.ID(tab.TargetID),
+				Type:     tab.Type,
+				Title:    tab.Title,
+				URL:      tab.URL,
+				Attached: false,
+			})
+		}
 	}
 
 	log.Printf("Monitoring started (session: %s)", m.tabRegistry.GetSessionID())
@@ -292,6 +311,11 @@ func (m *Manager) Stop() {
 	// Cancel browser context to stop event listening
 	if m.browserCancel != nil {
 		m.browserCancel()
+	}
+
+	// Cancel allocator context
+	if m.allocatorCancel != nil {
+		m.allocatorCancel()
 	}
 
 	// Stop all tab monitors

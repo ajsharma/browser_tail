@@ -97,20 +97,37 @@ func DiscoverTabs(port string) ([]*Tab, error) {
 }
 
 // WaitForChrome waits for Chrome to be available on the specified port.
+// It waits for both the /json/version endpoint AND at least one page target.
 func WaitForChrome(port string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
 	client := &http.Client{Timeout: 1 * time.Second}
 
+	versionReady := false
 	for time.Now().Before(deadline) {
-		resp, err := client.Get(fmt.Sprintf("http://localhost:%s/json/version", port))
-		if err == nil {
-			resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
+		// First check if /json/version responds
+		if !versionReady {
+			resp, err := client.Get(fmt.Sprintf("http://localhost:%s/json/version", port))
+			if err == nil {
+				resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					versionReady = true
+				}
+			}
+		}
+
+		// Then check if there's at least one page target
+		if versionReady {
+			tabs, err := DiscoverTabs(port)
+			if err == nil && len(tabs) > 0 {
 				return nil
 			}
 		}
+
 		time.Sleep(100 * time.Millisecond)
 	}
 
-	return fmt.Errorf("chrome not available on port %s after %v", port, timeout)
+	if !versionReady {
+		return fmt.Errorf("chrome not available on port %s after %v", port, timeout)
+	}
+	return fmt.Errorf("chrome available but no page targets after %v", timeout)
 }
