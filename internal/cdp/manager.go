@@ -2,8 +2,10 @@ package cdp
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -161,14 +163,27 @@ func (m *Manager) connect(ctx context.Context) error {
 		log.Printf("Using internal anchor tab: %s", m.internalTargetID[:8])
 	}
 
+	// Navigate anchor tab to test page instead of leaving it as about:blank
+	testPageURL := "data:text/html;base64," + base64.StdEncoding.EncodeToString([]byte(TestPageHTML))
+	if err := chromedp.Run(m.browserCtx, chromedp.Navigate(testPageURL)); err != nil {
+		log.Printf("Warning: could not load test page: %v", err)
+		// Non-fatal - about:blank still works
+	}
+
+	// Clean up any orphaned about:blank tabs from previous runs
+	// Keep only our internal anchor tab
+	m.cleanupOrphanedAnchorTabs(initialTabs)
+
 	// Step 4: Set up listener for target events
 	// ListenTarget receives target domain events (targetCreated, targetDestroyed, etc.)
 	// This listener is tied to our internal anchor tab - survives user tab closures
 	chromedp.ListenTarget(m.browserCtx, func(ev interface{}) {
 		switch ev := ev.(type) {
 		case *target.EventTargetCreated:
-			// Only monitor page targets, skip our internal anchor
-			if ev.TargetInfo.Type == TargetTypePage && string(ev.TargetInfo.TargetID) != m.internalTargetID {
+			// Only monitor page targets, skip internal/blank/test page tabs
+			if ev.TargetInfo.Type == TargetTypePage &&
+				!isInternalURL(ev.TargetInfo.URL) &&
+				string(ev.TargetInfo.TargetID) != m.internalTargetID {
 				m.handleNewTarget(ctx, ev.TargetInfo)
 			}
 
@@ -179,8 +194,10 @@ func (m *Manager) connect(ctx context.Context) error {
 			}
 
 		case *target.EventTargetInfoChanged:
-			// Tab URL/title changed, skip our internal anchor
-			if ev.TargetInfo.Type == TargetTypePage && string(ev.TargetInfo.TargetID) != m.internalTargetID {
+			// Tab URL/title changed, skip internal/blank/test page tabs
+			if ev.TargetInfo.Type == TargetTypePage &&
+				!isInternalURL(ev.TargetInfo.URL) &&
+				string(ev.TargetInfo.TargetID) != m.internalTargetID {
 				m.handleTargetInfoChanged(ev.TargetInfo)
 			}
 		}
@@ -189,13 +206,18 @@ func (m *Manager) connect(ctx context.Context) error {
 	// Clean up on disconnect
 	go func() {
 		<-m.browserCtx.Done()
+		// Close our internal anchor tab to avoid leaving orphaned about:blank tabs
+		if m.internalTargetID != "" {
+			// Try to close the anchor tab (best effort, may fail if already closed)
+			_ = target.CloseTarget(target.ID(m.internalTargetID)).Do(m.allocatorCtx)
+		}
 		m.allocatorCancel()
 		m.clearTabMonitors()
 	}()
 
-	// Start monitoring existing tabs (filter out our internal anchor)
+	// Start monitoring existing tabs (filter out internal/blank/test page tabs)
 	for _, tab := range initialTabs {
-		if tab.TargetID != m.internalTargetID {
+		if tab.TargetID != m.internalTargetID && !isInternalURL(tab.URL) {
 			m.handleNewTarget(ctx, &target.Info{
 				TargetID: target.ID(tab.TargetID),
 				Type:     tab.Type,
@@ -223,6 +245,21 @@ func (m *Manager) clearTabMonitors() {
 
 	for _, mon := range monitors {
 		mon.Stop()
+	}
+}
+
+// cleanupOrphanedAnchorTabs closes any internal tabs (about:blank, test pages) that aren't our internal anchor.
+// This cleans up tabs left over from previous browser_tail runs.
+func (m *Manager) cleanupOrphanedAnchorTabs(tabs []*Tab) {
+	for _, tab := range tabs {
+		// Close internal tabs (about:blank, data: URLs) that aren't our internal anchor
+		if isInternalURL(tab.URL) && tab.TargetID != m.internalTargetID {
+			log.Printf("Closing orphaned internal tab: %s", tab.TargetID[:8])
+			// Use HTTP API to close the tab (CDP CloseTarget requires owning the context)
+			if err := closeTabViaHTTP(m.config.ChromePort, tab.TargetID); err != nil {
+				log.Printf("Warning: failed to close orphaned tab: %v", err)
+			}
+		}
 	}
 }
 
@@ -358,4 +395,12 @@ func (m *Manager) IsConnected() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.connected
+}
+
+// isInternalURL checks if a URL belongs to an internal browser_tail tab.
+// This includes about:blank, data: URLs (test page), and URLs containing browser_tail.
+func isInternalURL(url string) bool {
+	return url == "about:blank" ||
+		strings.HasPrefix(url, "data:") ||
+		strings.Contains(url, "browser_tail")
 }
