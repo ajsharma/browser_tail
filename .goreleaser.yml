@@ -1,0 +1,83 @@
+# GoReleaser configuration for browser_tail
+# Documentation: https://goreleaser.com
+
+version: 2
+
+project_name: browser_tail
+
+before:
+  hooks:
+    - go mod tidy
+    - go generate ./...
+
+builds:
+  - id: browser_tail
+    main: ./cmd/browser_tail
+    binary: browser_tail
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/ajsharma/browser_tail/internal/config.Version={{.Version}}
+
+archives:
+  - id: default
+    format: tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - README.md
+      - LICENSE*
+      - examples/*
+
+checksum:
+  name_template: "checksums.txt"
+  algorithm: sha256
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+      - Merge pull request
+      - Merge branch
+
+brews:
+  - name: browser_tail
+    repository:
+      owner: ajsharma
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    directory: Formula
+    homepage: "https://github.com/ajsharma/browser_tail"
+    description: "Real-time Chrome DevTools event logger for debugging and AI agents"
+    license: "MIT"
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    dependencies:
+      - name: go
+        type: build
+    install: |
+      bin.install "browser_tail"
+    test: |
+      system "#{bin}/browser_tail", "--version"
+
+release:
+  github:
+    owner: ajsharma
+    name: browser_tail
+  draft: false
+  prerelease: auto
+  name_template: "v{{.Version}}"
+
+# Snapshot releases for testing
+snapshot:
+  version_template: "{{ .Tag }}-next"
