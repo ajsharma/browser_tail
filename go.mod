@@ -1,6 +1,6 @@
 module github.com/ajsharma/browser_tail
 
-go 1.25.6
+go 1.24
 
 require (
 	github.com/chromedp/cdproto v0.0.0-20250803210736-d308e07a266d
