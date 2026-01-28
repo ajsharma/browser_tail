@@ -1,0 +1,14 @@
+#!/bin/bash
+set -e
+
+cd "$(dirname "$0")/.."
+
+if ! command -v golangci-lint &> /dev/null; then
+    echo "golangci-lint not found. Install with:"
+    echo "  brew install golangci-lint"
+    echo "  or: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"
+    exit 1
+fi
+
+echo "Running golangci-lint..."
+golangci-lint run ./...

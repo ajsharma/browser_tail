@@ -1,0 +1,13 @@
+#!/bin/bash
+set -e
+
+cd "$(dirname "$0")/.."
+
+VERSION="${VERSION:-dev}"
+
+echo "Building browser_tail..."
+go build -ldflags "-X github.com/ajsharma/browser_tail/internal/config.Version=${VERSION}" \
+    -o browser_tail \
+    ./cmd/browser_tail
+
+echo "Built: ./browser_tail"
