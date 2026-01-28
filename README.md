@@ -14,11 +14,19 @@ Capture Chrome browser activity to structured JSONL logs via Chrome DevTools Pro
 
 ## Installation
 
+### Homebrew (macOS/Linux)
+
+```bash
+brew install ajsharma/tap/browser_tail
+```
+
+### Go install
+
 ```bash
 go install github.com/ajsharma/browser_tail/cmd/browser_tail@latest
 ```
 
-Or build from source:
+### Build from source
 
 ```bash
 git clone https://github.com/ajsharma/browser_tail
