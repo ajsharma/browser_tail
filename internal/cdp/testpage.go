@@ -14,9 +14,9 @@ const TestPageHTML = `<!DOCTYPE html>
     </style>
 </head>
 <body>
-    <h1 class="status">browser_tail is monitoring</h1>
+    <h1 class="status">browser_tail is monitoring this browser</h1>
     <p class="info">This tab is used internally for CDP connection.</p>
-    <p class="info">You can close this tab, but a new one will be created.</p>
+    <p class="info">You can close this tab.</p>
     <script>
         console.log('[browser_tail] Test page loaded');
         console.info('[browser_tail] Console logging is working');

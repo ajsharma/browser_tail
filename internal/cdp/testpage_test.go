@@ -16,7 +16,7 @@ func TestTestPageHTML(t *testing.T) {
 	expectedStrings := []string{
 		"<!DOCTYPE html>",
 		"<title>browser_tail",
-		"browser_tail is monitoring",
+		"browser_tail is monitoring this browser",
 		"console.log",
 		"[browser_tail]",
 	}
