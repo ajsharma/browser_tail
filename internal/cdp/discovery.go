@@ -131,3 +131,25 @@ func WaitForChrome(port string, timeout time.Duration) error {
 	}
 	return fmt.Errorf("chrome available but no page targets after %v", timeout)
 }
+
+// closeTabViaHTTP closes a Chrome tab using the HTTP debugging API.
+func closeTabViaHTTP(port, targetID string) error {
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("http://localhost:%s/json/close/%s", port, targetID), nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status: %d", resp.StatusCode)
+	}
+
+	return nil
+}
