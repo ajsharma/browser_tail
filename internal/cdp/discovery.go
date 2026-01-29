@@ -132,6 +132,23 @@ func WaitForChrome(port string, timeout time.Duration) error {
 	return fmt.Errorf("chrome available but no page targets after %v", timeout)
 }
 
+// OpenNewTab opens a new tab in Chrome using the HTTP debugging API.
+func OpenNewTab(port, url string) error {
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	resp, err := client.Get(fmt.Sprintf("http://localhost:%s/json/new?%s", port, url))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status: %d", resp.StatusCode)
+	}
+
+	return nil
+}
+
 // closeTabViaHTTP closes a Chrome tab using the HTTP debugging API.
 func closeTabViaHTTP(port, targetID string) error {
 	client := &http.Client{Timeout: 5 * time.Second}

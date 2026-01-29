@@ -91,6 +91,9 @@ func init() {
 
 	// Add control command
 	rootCmd.AddCommand(controlCmd)
+
+	// Add demo command
+	rootCmd.AddCommand(demoCmd)
 }
 
 // Control command variables.
@@ -353,6 +356,114 @@ func init() {
 	controlCmd.AddCommand(titleCmd)
 	controlCmd.AddCommand(urlCmd)
 	controlCmd.AddCommand(textCmd)
+}
+
+// Demo command variables.
+var (
+	demoTabs int
+	demoPort string
+)
+
+var demoCmd = &cobra.Command{
+	Use:   "demo",
+	Short: "Run a demo to validate browser_tail is working",
+	Long: `Launch Chrome with a demo page that generates various browser events
+(console.log, console.warn, console.error, uncaught errors, network requests).
+
+This helps you verify browser_tail is capturing events correctly.
+
+Example:
+  browser_tail demo
+  browser_tail demo --tabs 3`,
+	RunE: runDemo,
+}
+
+func init() {
+	demoCmd.Flags().IntVar(&demoTabs, "tabs", 2, "Number of demo tabs to open")
+	demoCmd.Flags().StringVarP(&demoPort, "port", "p", "9222", "Chrome remote debugging port")
+}
+
+func runDemo(cmd *cobra.Command, args []string) error {
+	// Use demo-specific config
+	demoCfg := config.DefaultConfig()
+	demoCfg.AutoLaunch = true
+	demoCfg.ChromePort = demoPort
+
+	// Create output directory
+	if err := os.MkdirAll(demoCfg.OutputDir, 0o755); err != nil {
+		return fmt.Errorf("failed to create output directory: %w", err)
+	}
+
+	// Create file manager
+	fm := logger.NewFileManager(demoCfg.OutputDir)
+	fm.SetFlushInterval(demoCfg.FlushInterval)
+	fm.SetBufferSize(demoCfg.BufferSize)
+
+	// Create CDP manager
+	manager := cdp.NewManager(demoCfg, fm)
+
+	// Setup signal handling
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		<-sigCh
+		log.Println("\nReceived shutdown signal...")
+		cancel()
+	}()
+
+	// Print startup info
+	log.Printf("browser_tail %s - Demo Mode", config.Version)
+	log.Printf("Output directory: %s", demoCfg.OutputDir)
+	log.Printf("Opening %d demo tab(s)...", demoTabs)
+	log.Println("")
+	log.Println("The demo page will generate:")
+	log.Println("  - console.log, console.info, console.warn, console.error")
+	log.Println("  - An uncaught JavaScript error")
+	log.Println("  - A network request")
+	log.Println("  - Periodic events every 5 seconds")
+	log.Println("")
+	log.Println("Watch your logs:")
+	log.Printf("  tail -f %s/*/*/session.log", demoCfg.OutputDir)
+	log.Println("")
+	log.Println("Press Ctrl+C to stop.")
+	log.Println("")
+
+	// Start monitoring in background
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- manager.Start(ctx)
+	}()
+
+	// Wait for Chrome to be ready
+	time.Sleep(2 * time.Second)
+
+	// Open demo tabs
+	demoURL := "data:text/html;base64," + base64.StdEncoding.EncodeToString([]byte(cdp.DemoPageHTML))
+	for i := 0; i < demoTabs; i++ {
+		if err := cdp.OpenNewTab(demoPort, demoURL); err != nil {
+			log.Printf("Warning: failed to open demo tab %d: %v", i+1, err)
+		} else {
+			log.Printf("Opened demo tab %d", i+1)
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	// Wait for completion or error
+	select {
+	case err := <-errCh:
+		if err != nil && ctx.Err() == nil {
+			return err
+		}
+	case <-ctx.Done():
+		time.Sleep(100 * time.Millisecond)
+	}
+
+	manager.Stop()
+	return nil
 }
 
 func run(cmd *cobra.Command, args []string) error {
