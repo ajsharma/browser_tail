@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -133,10 +134,13 @@ func WaitForChrome(port string, timeout time.Duration) error {
 }
 
 // OpenNewTab opens a new tab in Chrome using the HTTP debugging API.
-func OpenNewTab(port, url string) error {
+func OpenNewTab(port, targetURL string) error {
 	client := &http.Client{Timeout: 5 * time.Second}
 
-	req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("http://localhost:%s/json/new?%s", port, url), nil)
+	// URL-encode the target URL as a query parameter
+	apiURL := fmt.Sprintf("http://localhost:%s/json/new?%s", port, url.QueryEscape(targetURL))
+
+	req, err := http.NewRequest(http.MethodPut, apiURL, nil)
 	if err != nil {
 		return err
 	}
