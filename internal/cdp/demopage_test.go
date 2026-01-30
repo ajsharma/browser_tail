@@ -54,6 +54,9 @@ func TestOpenNewTab(t *testing.T) {
 				if !strings.HasPrefix(r.URL.Path, "/json/new") {
 					t.Errorf("expected path /json/new, got %s", r.URL.Path)
 				}
+				if r.Method != http.MethodPut {
+					t.Errorf("expected PUT method, got %s", r.Method)
+				}
 				w.WriteHeader(tt.responseCode)
 				w.Write([]byte(`{"id": "new-tab-id"}`))
 			}))

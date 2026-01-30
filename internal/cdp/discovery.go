@@ -136,7 +136,12 @@ func WaitForChrome(port string, timeout time.Duration) error {
 func OpenNewTab(port, url string) error {
 	client := &http.Client{Timeout: 5 * time.Second}
 
-	resp, err := client.Get(fmt.Sprintf("http://localhost:%s/json/new?%s", port, url))
+	req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("http://localhost:%s/json/new?%s", port, url), nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return err
 	}
