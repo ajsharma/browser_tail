@@ -3,6 +3,7 @@ package monitor
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"sync"
 	"time"
@@ -259,11 +260,7 @@ func (tm *TabMonitor) handleEvent(ev interface{}) {
 
 			args := make([]interface{}, 0, len(ev.Args))
 			for _, arg := range ev.Args {
-				if arg.Value != nil {
-					args = append(args, arg.Value)
-				} else if arg.Description != "" {
-					args = append(args, arg.Description)
-				}
+				args = append(args, extractRemoteObjectValue(arg))
 			}
 
 			tm.writeEvent(events.NewLogEvent(site, tabID, eventType, map[string]interface{}{
@@ -461,4 +458,111 @@ func (tm *TabMonitor) CurrentURL() string {
 	tm.mu.RLock()
 	defer tm.mu.RUnlock()
 	return tm.currentURL
+}
+
+// extractRemoteObjectValue extracts a usable value from a CDP RemoteObject.
+// This handles primitives, objects, arrays, and special values like undefined/null.
+func extractRemoteObjectValue(obj *runtime.RemoteObject) interface{} {
+	if obj == nil {
+		return nil
+	}
+
+	// Handle special unserializable values (Infinity, -Infinity, NaN, -0, bigint)
+	if obj.UnserializableValue != "" {
+		return string(obj.UnserializableValue)
+	}
+
+	// Handle primitive types with Value
+	if obj.Value != nil {
+		var v interface{}
+		if err := json.Unmarshal(obj.Value, &v); err == nil {
+			return v
+		}
+		// If unmarshal fails, return as string
+		return string(obj.Value)
+	}
+
+	// Handle undefined
+	if obj.Type == runtime.TypeUndefined {
+		return "undefined"
+	}
+
+	// Handle null (subtype is "null")
+	if obj.Subtype == runtime.SubtypeNull {
+		return nil
+	}
+
+	// For objects/arrays/functions, use Preview if available for better detail
+	if obj.Preview != nil {
+		return extractObjectPreview(obj.Preview)
+	}
+
+	// Fallback to description (e.g., "[object Object]", "function foo()")
+	if obj.Description != "" {
+		return obj.Description
+	}
+
+	// Last resort: return the type
+	return string(obj.Type)
+}
+
+// extractObjectPreview extracts a readable representation from an ObjectPreview.
+func extractObjectPreview(preview *runtime.ObjectPreview) interface{} {
+	if preview == nil {
+		return nil
+	}
+
+	// For arrays, build an array representation
+	if preview.Subtype == runtime.SubtypeArray {
+		arr := make([]interface{}, 0, len(preview.Properties))
+		for _, prop := range preview.Properties {
+			arr = append(arr, extractPropertyValue(prop))
+		}
+		if preview.Overflow {
+			arr = append(arr, "...")
+		}
+		return arr
+	}
+
+	// For objects, build a map representation
+	obj := make(map[string]interface{})
+	for _, prop := range preview.Properties {
+		obj[prop.Name] = extractPropertyValue(prop)
+	}
+	if preview.Overflow {
+		obj["..."] = "(truncated)"
+	}
+	return obj
+}
+
+// extractPropertyValue extracts a value from a PropertyPreview.
+func extractPropertyValue(prop *runtime.PropertyPreview) interface{} {
+	// Handle special unserializable values
+	if prop.Value == "undefined" {
+		return "undefined"
+	}
+	if prop.Value == "null" {
+		return nil
+	}
+
+	// For primitive types, try to parse the value
+	switch prop.Type {
+	case runtime.TypeNumber:
+		var v float64
+		if err := json.Unmarshal([]byte(prop.Value), &v); err == nil {
+			return v
+		}
+		return prop.Value
+	case runtime.TypeBoolean:
+		return prop.Value == "true"
+	case runtime.TypeString:
+		return prop.Value
+	case runtime.TypeObject:
+		if prop.Subtype == runtime.SubtypeNull {
+			return nil
+		}
+		return prop.Value // e.g., "Object", "Array(3)"
+	default:
+		return prop.Value
+	}
 }
