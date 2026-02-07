@@ -441,8 +441,17 @@ func runDemo(cmd *cobra.Command, args []string) error {
 	// Wait for Chrome to be ready
 	time.Sleep(2 * time.Second)
 
+	// Write demo HTML to temp file (data: URLs are filtered as internal)
+	tmpDir := os.TempDir()
+	demoFile := tmpDir + "/bt_demo.html"
+	if err := os.WriteFile(demoFile, []byte(cdp.DemoPageHTML), 0644); err != nil {
+		return fmt.Errorf("failed to write demo file: %w", err)
+	}
+	defer os.Remove(demoFile)
+
+	demoURL := "file://" + demoFile
+
 	// Open demo tabs
-	demoURL := "data:text/html;base64," + base64.StdEncoding.EncodeToString([]byte(cdp.DemoPageHTML))
 	for i := 0; i < demoTabs; i++ {
 		if err := cdp.OpenNewTab(demoPort, demoURL); err != nil {
 			log.Printf("Warning: failed to open demo tab %d: %v", i+1, err)
