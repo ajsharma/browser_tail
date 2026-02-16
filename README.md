@@ -242,9 +242,46 @@ logs/
         └── session.log
 ```
 
+## Local Development
+
+### Prerequisites
+
+- Go 1.25.6 or later
+- Google Chrome or Chromium
+
+### Setup
+
+```bash
+git clone https://github.com/ajsharma/browser_tail
+cd browser_tail
+bin/setup
+```
+
+This downloads Go dependencies, installs `golangci-lint`, and makes the bin scripts executable.
+
+### Build
+
+```bash
+bin/build
+```
+
+Produces a `browser_tail` binary in the project root. Set the `VERSION` environment variable to override the version string (defaults to `dev`).
+
+### Test
+
+```bash
+bin/test
+```
+
+### Lint
+
+```bash
+bin/lint
+```
+
 ## Requirements
 
-- Go 1.21 or later
+- Go 1.25.6 or later
 - Google Chrome or Chromium with remote debugging enabled
 
 ## License
