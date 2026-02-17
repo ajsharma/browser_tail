@@ -11,10 +11,10 @@ import (
 
 func TestDiscoverBrowserInfo(t *testing.T) {
 	tests := []struct {
-		name           string
-		responseCode   int
-		responseBody   string
-		expectError    bool
+		name            string
+		responseCode    int
+		responseBody    string
+		expectError     bool
 		expectedBrowser string
 	}{
 		{

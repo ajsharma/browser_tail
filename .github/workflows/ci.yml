@@ -9,8 +9,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    env:
-      GOTOOLCHAIN: local
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,8 +32,6 @@ jobs:
 
   lint:
     runs-on: ubuntu-latest
-    env:
-      GOTOOLCHAIN: local
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -47,14 +43,9 @@ jobs:
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v7
-        with:
-          version: v2.8.0
-          verify: false
 
   build:
     runs-on: ubuntu-latest
-    env:
-      GOTOOLCHAIN: local
     strategy:
       matrix:
         goos: [darwin, linux]
