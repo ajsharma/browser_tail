@@ -236,19 +236,35 @@ func TestTabRegistry(t *testing.T) {
 	}
 }
 
-func TestGenerateTabID(t *testing.T) {
-	// Generate a few tab IDs and verify they are unique and sequential
-	ids := make(map[string]bool)
-	for i := 0; i < 10; i++ {
-		id := GenerateTabID()
-		if ids[id] {
-			t.Errorf("GenerateTabID returned duplicate ID: %s", id)
-		}
-		ids[id] = true
+func TestRegistryIndependentCounters(t *testing.T) {
+	// Two registries should have independent tab counters
+	r1 := NewTabRegistry()
+	r2 := NewTabRegistry()
 
-		if !strings.HasPrefix(id, "tab-") {
-			t.Errorf("GenerateTabID returned ID without 'tab-' prefix: %s", id)
-		}
+	id1 := r1.GetOrCreateTabID("target-a")
+	id2 := r2.GetOrCreateTabID("target-b")
+
+	// Both should start from tab-1 since counters are independent
+	if id1 != "tab-1" {
+		t.Errorf("first registry first tab = %q, want tab-1", id1)
+	}
+	if id2 != "tab-1" {
+		t.Errorf("second registry first tab = %q, want tab-1", id2)
+	}
+
+	// Verify sequential IDs within a single registry
+	id3 := r1.GetOrCreateTabID("target-c")
+	if id3 != "tab-2" {
+		t.Errorf("first registry second tab = %q, want tab-2", id3)
+	}
+
+	// Verify IDs beyond 9 are proper decimal (not garbled runes)
+	for i := 0; i < 10; i++ {
+		r1.GetOrCreateTabID(strings.Repeat("x", i+1))
+	}
+	id13 := r1.GetOrCreateTabID("target-13th")
+	if id13 != "tab-13" {
+		t.Errorf("13th tab = %q, want tab-13", id13)
 	}
 }
 
