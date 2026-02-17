@@ -177,11 +177,11 @@ func (tm *TabMonitor) handleEvent(ev interface{}) {
 	// Network events
 	case *network.EventRequestWillBeSent:
 		if cfg.EnableNetwork {
-			tm.writeEvent(events.NewLogEvent(site, tabID, events.EventNetworkRequest, map[string]interface{}{
-				"request_id": ev.RequestID.String(),
-				"url":        ev.Request.URL,
-				"method":     ev.Request.Method,
-				"type":       ev.Type.String(),
+			tm.writeEvent(events.NewLogEvent(site, tabID, events.EventNetworkRequest, &events.NetworkRequestData{
+				RequestID: ev.RequestID.String(),
+				URL:       ev.Request.URL,
+				Method:    ev.Request.Method,
+				Type:      ev.Type.String(),
 			}))
 		}
 
@@ -195,14 +195,14 @@ func (tm *TabMonitor) handleEvent(ev interface{}) {
 			// Apply redaction to headers.
 			headers = tm.redactor.RedactHeaders(headers)
 
-			tm.writeEvent(events.NewLogEvent(site, tabID, events.EventNetworkResponse, map[string]interface{}{
-				"request_id":     ev.RequestID.String(),
-				"url":            ev.Response.URL,
-				"status":         ev.Response.Status,
-				"status_text":    ev.Response.StatusText,
-				"mime_type":      ev.Response.MimeType,
-				"headers":        headers,
-				"encoded_length": ev.Response.EncodedDataLength,
+			tm.writeEvent(events.NewLogEvent(site, tabID, events.EventNetworkResponse, &events.NetworkResponseData{
+				RequestID:     ev.RequestID.String(),
+				URL:           ev.Response.URL,
+				Status:        ev.Response.Status,
+				StatusText:    ev.Response.StatusText,
+				MimeType:      ev.Response.MimeType,
+				Headers:       headers,
+				EncodedLength: ev.Response.EncodedDataLength,
 			}))
 
 			// Store response info for body capture if enabled
@@ -234,12 +234,12 @@ func (tm *TabMonitor) handleEvent(ev interface{}) {
 
 	case *network.EventLoadingFailed:
 		if cfg.EnableNetwork {
-			tm.writeEvent(events.NewLogEvent(site, tabID, events.EventNetworkFailure, map[string]interface{}{
-				"request_id": ev.RequestID.String(),
-				"error_text": ev.ErrorText,
-				"canceled":   ev.Canceled,
-				"blocked":    ev.BlockedReason.String(),
-				"cors_error": ev.CorsErrorStatus,
+			tm.writeEvent(events.NewLogEvent(site, tabID, events.EventNetworkFailure, &events.NetworkFailureData{
+				RequestID: ev.RequestID.String(),
+				ErrorText: ev.ErrorText,
+				Canceled:  ev.Canceled,
+				Blocked:   ev.BlockedReason.String(),
+				CORSError: ev.CorsErrorStatus,
 			}))
 		}
 
@@ -263,8 +263,8 @@ func (tm *TabMonitor) handleEvent(ev interface{}) {
 				args = append(args, extractRemoteObjectValue(arg))
 			}
 
-			tm.writeEvent(events.NewLogEvent(site, tabID, eventType, map[string]interface{}{
-				"args": args,
+			tm.writeEvent(events.NewLogEvent(site, tabID, eventType, &events.ConsoleData{
+				Args: args,
 			}))
 		}
 
@@ -272,12 +272,12 @@ func (tm *TabMonitor) handleEvent(ev interface{}) {
 	case *runtime.EventExceptionThrown:
 		if cfg.EnableErrors {
 			details := ev.ExceptionDetails
-			tm.writeEvent(events.NewLogEvent(site, tabID, events.EventErrorRuntime, map[string]interface{}{
-				"text":      details.Text,
-				"line":      details.LineNumber,
-				"column":    details.ColumnNumber,
-				"url":       details.URL,
-				"script_id": details.ScriptID,
+			tm.writeEvent(events.NewLogEvent(site, tabID, events.EventErrorRuntime, &events.RuntimeErrorData{
+				Text:     details.Text,
+				Line:     details.LineNumber,
+				Column:   details.ColumnNumber,
+				URL:      details.URL,
+				ScriptID: string(details.ScriptID),
 			}))
 		}
 	}
@@ -355,12 +355,12 @@ func (tm *TabMonitor) captureBody(requestID network.RequestID, info *responseInf
 	bodyStr = tm.redactor.RedactBody(bodyStr)
 
 	// Log the body as a separate event.
-	tm.writeEvent(events.NewLogEvent(site, tabID, events.EventNetworkResponseBody, map[string]interface{}{
-		"request_id":     requestID.String(),
-		"url":            info.URL,
-		"mime_type":      info.MimeType,
-		"base64_encoded": base64Encoded,
-		"body":           bodyStr,
+	tm.writeEvent(events.NewLogEvent(site, tabID, events.EventNetworkResponseBody, &events.NetworkResponseBodyData{
+		RequestID:     requestID.String(),
+		URL:           info.URL,
+		MimeType:      info.MimeType,
+		Base64Encoded: base64Encoded,
+		Body:          bodyStr,
 	}))
 }
 
