@@ -38,6 +38,7 @@ type Manager struct {
 const (
 	reconnectInterval = 5 * time.Second
 	maxReconnectWait  = 30 * time.Second
+	shutdownTimeout   = 5 * time.Second
 )
 
 // NewManager creates a new CDP Manager.
@@ -341,10 +342,26 @@ func (m *Manager) handleTargetInfoChanged(info *target.Info) {
 	}
 }
 
-// Stop gracefully shuts down the manager.
+// Stop gracefully shuts down the manager with a timeout.
 func (m *Manager) Stop() {
 	log.Println("Shutting down...")
 
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		m.shutdown()
+	}()
+
+	select {
+	case <-done:
+		log.Println("Shutdown complete")
+	case <-time.After(shutdownTimeout):
+		log.Println("Shutdown timed out, forcing exit")
+	}
+}
+
+// shutdown performs the actual shutdown sequence.
+func (m *Manager) shutdown() {
 	// Cancel browser context to stop event listening
 	if m.browserCancel != nil {
 		m.browserCancel()
@@ -379,8 +396,6 @@ func (m *Manager) Stop() {
 			log.Printf("Error stopping Chrome: %v", err)
 		}
 	}
-
-	log.Println("Shutdown complete")
 }
 
 // GetActiveTabCount returns the number of actively monitored tabs.
