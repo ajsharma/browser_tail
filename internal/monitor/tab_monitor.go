@@ -4,6 +4,7 @@ package monitor
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -285,8 +286,10 @@ func (tm *TabMonitor) handleEvent(ev interface{}) {
 
 // writeEvent writes an event to the log file.
 func (tm *TabMonitor) writeEvent(ev *events.LogEvent) {
-	// Errors are non-fatal - monitoring continues even if writes fail
-	_ = tm.fileManager.WriteEvent(tm.tabID, ev)
+	if err := tm.fileManager.WriteEvent(tm.tabID, ev); err != nil {
+		log.Printf("Warning: failed to write event (tab %s, type %s): %v",
+			tm.tabID, ev.EventType, err)
+	}
 }
 
 // shouldCaptureBody checks if response body should be captured based on content type and size.
@@ -377,34 +380,33 @@ func (tm *TabMonitor) HandleSiteChange(newSite, newURL string) bool {
 
 	oldSite := tm.currentSite
 
-	// Write meta event to old log (errors are non-fatal)
+	// Write meta event to old log
 	if err := tm.fileManager.WriteEvent(tm.tabID, events.NewSiteChangedEvent(
 		oldSite,
 		tm.tabID,
 		newSite,
 		newURL,
 	)); err != nil {
-		// Log continues even if write fails
-		_ = err
+		log.Printf("Warning: failed to write site_changed event (tab %s): %v", tm.tabID, err)
 	}
 
-	// Close old log file (errors are non-fatal)
+	// Close old log file
 	if err := tm.fileManager.CloseTab(tm.tabID, oldSite); err != nil {
-		_ = err
+		log.Printf("Warning: failed to close old site log (tab %s, site %s): %v", tm.tabID, oldSite, err)
 	}
 
 	// Update current site
 	tm.currentSite = newSite
 	tm.currentURL = newURL
 
-	// Write meta event to new log (errors are non-fatal)
+	// Write meta event to new log
 	if err := tm.fileManager.WriteEvent(tm.tabID, events.NewSiteEnteredEvent(
 		newSite,
 		tm.tabID,
 		oldSite,
 		newURL,
 	)); err != nil {
-		_ = err
+		log.Printf("Warning: failed to write site_entered event (tab %s): %v", tm.tabID, err)
 	}
 
 	return true
