@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"log"
+	"log/slog"
 	"strings"
 	"sync"
 	"time"
@@ -66,7 +66,7 @@ func (m *Manager) Start(ctx context.Context) error {
 			return fmt.Errorf("chrome not ready: %w", err)
 		}
 
-		log.Printf("Launched Chrome (PID: %d) on port %s", m.chromeProcess.PID(), m.config.ChromePort)
+		slog.Info("Launched Chrome", "pid", m.chromeProcess.PID(), "port", m.config.ChromePort)
 	}
 
 	// Log session start
@@ -80,7 +80,7 @@ func (m *Manager) Start(ctx context.Context) error {
 		config.Version,
 	)
 	if err := m.fileManager.WriteEvent("_session", sessionEvent); err != nil {
-		log.Printf("Warning: failed to write session start event: %v", err)
+		slog.Warn("Failed to write session start event", "error", err)
 	}
 
 	// Reconnection loop
@@ -105,10 +105,10 @@ func (m *Manager) Start(ctx context.Context) error {
 			case <-m.browserCtx.Done():
 				// Browser disconnected, will retry
 				m.connected = false
-				log.Printf("Chrome disconnected, will retry in %v...", retryWait)
+				slog.Warn("Chrome disconnected, will retry", "wait", retryWait)
 			}
 		} else {
-			log.Printf("Failed to connect to Chrome: %v", err)
+			slog.Error("Failed to connect to Chrome", "error", err)
 		}
 
 		// Wait before retrying (with backoff)
@@ -133,7 +133,7 @@ func (m *Manager) connect(ctx context.Context) error {
 		return fmt.Errorf("failed to discover initial tabs: %w", err)
 	}
 
-	log.Printf("Discovered %d existing tab(s)", len(initialTabs))
+	slog.Info("Discovered existing tabs", "count", len(initialTabs))
 
 	// Get browser info for WebSocket URL
 	browserInfo, err := DiscoverBrowserInfo(m.config.ChromePort)
@@ -160,13 +160,13 @@ func (m *Manager) connect(ctx context.Context) error {
 	c := chromedp.FromContext(m.browserCtx)
 	if c.Target != nil {
 		m.internalTargetID = string(c.Target.TargetID)
-		log.Printf("Using internal anchor tab: %s", m.internalTargetID[:8])
+		slog.Debug("Using internal anchor tab", "target_id", m.internalTargetID[:8])
 	}
 
 	// Navigate anchor tab to test page instead of leaving it as about:blank
 	testPageURL := "data:text/html;base64," + base64.StdEncoding.EncodeToString([]byte(TestPageHTML))
 	if err := chromedp.Run(m.browserCtx, chromedp.Navigate(testPageURL)); err != nil {
-		log.Printf("Warning: could not load test page: %v", err)
+		slog.Warn("Could not load test page", "error", err)
 		// Non-fatal - about:blank still works
 	}
 
@@ -228,7 +228,7 @@ func (m *Manager) connect(ctx context.Context) error {
 		}
 	}
 
-	log.Printf("Monitoring started (session: %s)", m.tabRegistry.GetSessionID())
+	slog.Info("Monitoring started", "session", m.tabRegistry.GetSessionID())
 
 	return nil
 }
@@ -254,10 +254,10 @@ func (m *Manager) cleanupOrphanedAnchorTabs(tabs []*Tab) {
 	for _, tab := range tabs {
 		// Close internal tabs (about:blank, data: URLs) that aren't our internal anchor
 		if isInternalURL(tab.URL) && tab.TargetID != m.internalTargetID {
-			log.Printf("Closing orphaned internal tab: %s", tab.TargetID[:8])
+			slog.Debug("Closing orphaned internal tab", "target_id", tab.TargetID[:8])
 			// Use HTTP API to close the tab (CDP CloseTarget requires owning the context)
 			if err := closeTabViaHTTP(m.config.ChromePort, tab.TargetID); err != nil {
-				log.Printf("Warning: failed to close orphaned tab: %v", err)
+				slog.Warn("Failed to close orphaned tab", "error", err)
 			}
 		}
 	}
@@ -297,11 +297,11 @@ func (m *Manager) handleNewTarget(ctx context.Context, info *target.Info) {
 	// Start monitoring in goroutine
 	go func() {
 		if err := mon.Start(m.browserCtx); err != nil {
-			log.Printf("Tab monitor error (tab %s): %v", tabID, err)
+			slog.Error("Tab monitor error", "tab", tabID, "error", err)
 		}
 	}()
 
-	log.Printf("Started monitoring tab %s (%s) - %s", tabID, targetID[:8], info.URL)
+	slog.Info("Started monitoring tab", "tab", tabID, "target_id", targetID[:8], "url", info.URL)
 }
 
 // handleTargetDestroyed handles a tab being closed.
@@ -319,7 +319,7 @@ func (m *Manager) handleTargetDestroyed(targetID string) {
 	// Signal TabMonitor to shut down
 	mon.Stop()
 
-	log.Printf("Tab closed: %s", mon.TabID())
+	slog.Info("Tab closed", "tab", mon.TabID())
 }
 
 // handleTargetInfoChanged handles URL/title changes.
@@ -337,13 +337,13 @@ func (m *Manager) handleTargetInfoChanged(info *target.Info) {
 	// Check if site changed
 	newSite := logger.ExtractSite(info.URL)
 	if mon.HandleSiteChange(newSite, info.URL) {
-		log.Printf("Tab %s navigated to new site: %s", mon.TabID(), newSite)
+		slog.Info("Tab navigated to new site", "tab", mon.TabID(), "site", newSite)
 	}
 }
 
 // Stop gracefully shuts down the manager.
 func (m *Manager) Stop() {
-	log.Println("Shutting down...")
+	slog.Info("Shutting down...")
 
 	// Cancel browser context to stop event listening
 	if m.browserCancel != nil {
@@ -370,17 +370,17 @@ func (m *Manager) Stop() {
 
 	// Close all log files
 	if err := m.fileManager.Close(); err != nil {
-		log.Printf("Error closing log files: %v", err)
+		slog.Error("Error closing log files", "error", err)
 	}
 
 	// Stop Chrome if we launched it
 	if m.chromeProcess != nil {
 		if err := m.chromeProcess.Stop(); err != nil {
-			log.Printf("Error stopping Chrome: %v", err)
+			slog.Error("Error stopping Chrome", "error", err)
 		}
 	}
 
-	log.Println("Shutdown complete")
+	slog.Info("Shutdown complete")
 }
 
 // GetActiveTabCount returns the number of actively monitored tabs.

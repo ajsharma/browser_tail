@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"log"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -411,26 +411,21 @@ func runDemo(cmd *cobra.Command, args []string) error {
 
 	go func() {
 		<-sigCh
-		log.Println("\nReceived shutdown signal...")
+		slog.Info("Received shutdown signal")
 		cancel()
 	}()
 
 	// Print startup info
-	log.Printf("browser_tail %s - Demo Mode", config.Version)
-	log.Printf("Output directory: %s", demoCfg.OutputDir)
-	log.Printf("Opening %d demo tab(s)...", demoTabs)
-	log.Println("")
-	log.Println("The demo page will generate:")
-	log.Println("  - console.log, console.info, console.warn, console.error")
-	log.Println("  - An uncaught JavaScript error")
-	log.Println("  - A network request")
-	log.Println("  - Periodic events every 5 seconds")
-	log.Println("")
-	log.Println("Watch your logs:")
-	log.Printf("  tail -f %s/*/*/session.log", demoCfg.OutputDir)
-	log.Println("")
-	log.Println("Press Ctrl+C to stop.")
-	log.Println("")
+	slog.Info("browser_tail demo mode", "version", config.Version, "output", demoCfg.OutputDir, "tabs", demoTabs)
+	fmt.Println("The demo page will generate:")
+	fmt.Println("  - console.log, console.info, console.warn, console.error")
+	fmt.Println("  - An uncaught JavaScript error")
+	fmt.Println("  - A network request")
+	fmt.Println("  - Periodic events every 5 seconds")
+	fmt.Println("")
+	fmt.Printf("Watch your logs:\n  tail -f %s/*/*/session.log\n\n", demoCfg.OutputDir)
+	fmt.Println("Press Ctrl+C to stop.")
+	fmt.Println("")
 
 	// Start monitoring in background
 	errCh := make(chan error, 1)
@@ -454,9 +449,9 @@ func runDemo(cmd *cobra.Command, args []string) error {
 	// Open demo tabs
 	for i := 0; i < demoTabs; i++ {
 		if err := cdp.OpenNewTab(demoPort, demoURL); err != nil {
-			log.Printf("Warning: failed to open demo tab %d: %v", i+1, err)
+			slog.Warn("Failed to open demo tab", "tab", i+1, "error", err)
 		} else {
-			log.Printf("Opened demo tab %d", i+1)
+			slog.Info("Opened demo tab", "tab", i+1)
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
@@ -529,19 +524,16 @@ func run(cmd *cobra.Command, args []string) error {
 
 	go func() {
 		<-sigCh
-		log.Println("\nReceived shutdown signal...")
+		slog.Info("Received shutdown signal")
 		cancel()
 	}()
 
 	// Print startup info
-	log.Printf("browser_tail %s", config.Version)
-	log.Printf("Output directory: %s", cfg.OutputDir)
-	log.Printf("Chrome port: %s", cfg.ChromePort)
+	mode := "connecting"
 	if cfg.AutoLaunch {
-		log.Println("Auto-launching Chrome...")
-	} else {
-		log.Println("Connecting to existing Chrome...")
+		mode = "launching"
 	}
+	slog.Info("browser_tail starting", "version", config.Version, "output", cfg.OutputDir, "port", cfg.ChromePort, "mode", mode)
 
 	// Start monitoring
 	errCh := make(chan error, 1)
