@@ -14,24 +14,26 @@ import (
 
 // Controller provides browser automation capabilities via CDP.
 type Controller struct {
-	allocatorCtx context.Context
-	browserCtx   context.Context
-	cancel       context.CancelFunc
-	timeout      time.Duration
+	allocatorCtx    context.Context
+	allocatorCancel context.CancelFunc
+	browserCtx      context.Context
+	browserCancel   context.CancelFunc
+	timeout         time.Duration
 }
 
 // NewController creates a new browser controller connected to the specified Chrome port.
 func NewController(port string) (*Controller, error) {
-	allocatorCtx, _ := chromedp.NewRemoteAllocator(context.Background(),
+	allocatorCtx, allocatorCancel := chromedp.NewRemoteAllocator(context.Background(),
 		"http://localhost:"+port)
 
-	browserCtx, cancel := chromedp.NewContext(allocatorCtx)
+	browserCtx, browserCancel := chromedp.NewContext(allocatorCtx)
 
 	return &Controller{
-		allocatorCtx: allocatorCtx,
-		browserCtx:   browserCtx,
-		cancel:       cancel,
-		timeout:      30 * time.Second,
+		allocatorCtx:    allocatorCtx,
+		allocatorCancel: allocatorCancel,
+		browserCtx:      browserCtx,
+		browserCancel:   browserCancel,
+		timeout:         30 * time.Second,
 	}, nil
 }
 
@@ -42,8 +44,11 @@ func (c *Controller) SetTimeout(d time.Duration) {
 
 // Close releases resources.
 func (c *Controller) Close() {
-	if c.cancel != nil {
-		c.cancel()
+	if c.browserCancel != nil {
+		c.browserCancel()
+	}
+	if c.allocatorCancel != nil {
+		c.allocatorCancel()
 	}
 }
 
