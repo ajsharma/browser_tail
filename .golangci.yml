@@ -4,7 +4,7 @@ run:
   timeout: 5m
 
 linters:
-  enable-all: true
+  default: all
   disable:
     # These are overly strict for this project
     - depguard         # We need third-party deps
@@ -41,31 +41,35 @@ linters:
     - errcheck         # Too noisy for defer Close() patterns
     - usetesting       # os.MkdirTemp is fine in tests
     - gosec            # Security checks are overly sensitive for local tool
-
-linters-settings:
-  goconst:
-    min-occurrences: 3
-    ignore-tests: true
-  revive:
+    - funcorder        # Method ordering is subjective
+    - noinlineerr      # Inline error handling is idiomatic Go
+    - godoclint        # Multiple package comments across files is fine
+    - wsl_v5           # Whitespace style is subjective (v2 replacement for wsl)
+    - modernize        # Go modernization suggestions are optional
+    - perfsprint       # Micro-optimizations over clarity not worth it
+    - goconst          # String constants in tests are fine as literals
+  settings:
+    revive:
+      rules:
+        - name: empty-block
+          disabled: true
+        - name: unused-parameter
+          disabled: false
+  exclusions:
     rules:
-      - name: empty-block
-        disabled: true
-      - name: unused-parameter
-        disabled: false
+      # Allow unused parameters in command handlers and tests
+      - path: cmd/
+        linters:
+          - revive
+        text: "unused-parameter"
+      - path: _test\.go
+        linters:
+          - revive
+        text: "unused-parameter"
+      # Allow fmt.Print in CLI commands (expected for output)
+      - path: cmd/
+        linters:
+          - forbidigo
+
 issues:
-  exclude-use-default: false
   max-same-issues: 10
-  exclude-rules:
-    # Allow unused parameters in command handlers
-    - path: cmd/
-      linters:
-        - revive
-      text: "unused-parameter"
-    # Allow fmt.Print in CLI commands (expected for output)
-    - path: cmd/
-      linters:
-        - forbidigo
-    # Allow perfsprint suggestions in cmd/ (clarity over micro-optimization)
-    - path: cmd/
-      linters:
-        - perfsprint
