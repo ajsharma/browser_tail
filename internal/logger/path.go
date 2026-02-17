@@ -2,6 +2,7 @@
 package logger
 
 import (
+	"fmt"
 	"net/url"
 	"path/filepath"
 	"strings"
@@ -17,7 +18,6 @@ const UnknownSite = "unknown"
 var (
 	sessionID   string
 	sessionOnce sync.Once
-	tabCounter  atomic.Int64
 )
 
 // GetSessionID returns the unique session ID for this browser_tail process.
@@ -29,17 +29,11 @@ func GetSessionID() string {
 	return sessionID
 }
 
-// GenerateTabID creates a new unique tab ID.
-// Tab IDs are sequential (tab-1, tab-2, etc.) and stable within the process lifetime.
-func GenerateTabID() string {
-	id := tabCounter.Add(1)
-	return "tab-" + strings.TrimPrefix(string(rune('0'+id)), "0")
-}
-
 // TabRegistry maintains a mapping between CDP target IDs and stable tab IDs.
 type TabRegistry struct {
 	sessionID   string
 	targetToTab map[string]string
+	tabCounter  atomic.Int64
 	mu          sync.RWMutex
 }
 
@@ -49,6 +43,12 @@ func NewTabRegistry() *TabRegistry {
 		sessionID:   GetSessionID(),
 		targetToTab: make(map[string]string),
 	}
+}
+
+// generateTabID creates a new unique tab ID within this registry.
+func (r *TabRegistry) generateTabID() string {
+	id := r.tabCounter.Add(1)
+	return fmt.Sprintf("tab-%d", id)
 }
 
 // GetOrCreateTabID returns the tab ID for a given target ID.
@@ -69,7 +69,7 @@ func (r *TabRegistry) GetOrCreateTabID(targetID string) string {
 		return tabID
 	}
 
-	tabID := GenerateTabID()
+	tabID := r.generateTabID()
 	r.targetToTab[targetID] = tabID
 	return tabID
 }
