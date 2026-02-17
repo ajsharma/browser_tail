@@ -16,9 +16,14 @@ import (
 
 	"github.com/ajsharma/browser_tail/internal/config"
 	"github.com/ajsharma/browser_tail/internal/events"
-	"github.com/ajsharma/browser_tail/internal/logger"
 	"github.com/ajsharma/browser_tail/internal/redact"
 )
+
+// EventWriter is the interface for writing log events and managing tab log files.
+type EventWriter interface {
+	WriteEvent(tabID string, event *events.LogEvent) error
+	CloseTab(tabID, site string) error
+}
 
 // responseInfo stores response metadata for body capture.
 type responseInfo struct {
@@ -37,7 +42,7 @@ type TabMonitor struct {
 	sessionID   string
 	startTime   time.Time
 
-	fileManager *logger.FileManager
+	fileManager EventWriter
 	config      *config.Config
 	redactor    *redact.Redactor
 
@@ -57,7 +62,7 @@ type TabMonitor struct {
 func NewTabMonitor(
 	parentCtx context.Context,
 	targetID, tabID, site, title, url, sessionID string,
-	fm *logger.FileManager,
+	fm EventWriter,
 	cfg *config.Config,
 ) *TabMonitor {
 	ctx, cancel := context.WithCancel(parentCtx)
