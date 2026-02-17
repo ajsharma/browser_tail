@@ -4,6 +4,7 @@ package logger
 import (
 	"net/url"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -33,7 +34,7 @@ func GetSessionID() string {
 // Tab IDs are sequential (tab-1, tab-2, etc.) and stable within the process lifetime.
 func GenerateTabID() string {
 	id := tabCounter.Add(1)
-	return "tab-" + strings.TrimPrefix(string(rune('0'+id)), "0")
+	return "tab-" + strconv.FormatInt(id, 10)
 }
 
 // TabRegistry maintains a mapping between CDP target IDs and stable tab IDs.
