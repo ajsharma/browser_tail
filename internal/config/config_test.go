@@ -228,7 +228,7 @@ func TestExampleConfigs(t *testing.T) {
 	// The examples/ directory is at the repo root: ../../examples/
 	patterns := []string{"../../examples/*.yaml", "../../examples/*.yml"}
 
-	var files []string
+	files := make([]string, 0, len(patterns))
 	for _, pattern := range patterns {
 		matches, err := filepath.Glob(pattern)
 		if err != nil {
