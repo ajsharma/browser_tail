@@ -3,6 +3,8 @@ package logger
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -230,24 +232,24 @@ func (fm *FileManager) CloseAllForTab(tabID string) error {
 	}
 	fm.mu.Unlock()
 
-	var lastErr error
+	var errs []error
 	for _, tw := range toClose {
 		tw.mu.Lock()
 		tw.cancelFlushTimer()
 
 		if err := tw.writer.Flush(); err != nil {
-			lastErr = err
+			errs = append(errs, fmt.Errorf("flush %s/%s: %w", tw.site, tw.tabID, err))
 		}
 		if err := tw.file.Sync(); err != nil {
-			lastErr = err
+			errs = append(errs, fmt.Errorf("sync %s/%s: %w", tw.site, tw.tabID, err))
 		}
 		if err := tw.file.Close(); err != nil {
-			lastErr = err
+			errs = append(errs, fmt.Errorf("close %s/%s: %w", tw.site, tw.tabID, err))
 		}
 		tw.mu.Unlock()
 	}
 
-	return lastErr
+	return errors.Join(errs...)
 }
 
 // Close closes all open log files.
@@ -260,24 +262,24 @@ func (fm *FileManager) Close() error {
 	fm.files = make(map[string]*tabWriter)
 	fm.mu.Unlock()
 
-	var lastErr error
+	var errs []error
 	for _, tw := range writers {
 		tw.mu.Lock()
 		tw.cancelFlushTimer()
 
 		if err := tw.writer.Flush(); err != nil {
-			lastErr = err
+			errs = append(errs, fmt.Errorf("flush %s/%s: %w", tw.site, tw.tabID, err))
 		}
 		if err := tw.file.Sync(); err != nil {
-			lastErr = err
+			errs = append(errs, fmt.Errorf("sync %s/%s: %w", tw.site, tw.tabID, err))
 		}
 		if err := tw.file.Close(); err != nil {
-			lastErr = err
+			errs = append(errs, fmt.Errorf("close %s/%s: %w", tw.site, tw.tabID, err))
 		}
 		tw.mu.Unlock()
 	}
 
-	return lastErr
+	return errors.Join(errs...)
 }
 
 // GetOpenFiles returns the number of currently open log files.
