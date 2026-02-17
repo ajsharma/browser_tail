@@ -25,6 +25,7 @@ type responseInfo struct {
 	URL         string
 	MimeType    string
 	ContentSize float64
+	CreatedAt   time.Time
 }
 
 // TabMonitor monitors a single browser tab.
@@ -122,6 +123,22 @@ func (tm *TabMonitor) Start(browserCtx context.Context) error {
 		tm.handleEvent(ev)
 	})
 
+	// Start periodic cleanup of expired request tracker entries
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-tm.ctx.Done():
+				return
+			case <-targetCtx.Done():
+				return
+			case <-ticker.C:
+				tm.cleanExpiredRequests(60 * time.Second)
+			}
+		}
+	}()
+
 	// Wait for context cancellation
 	select {
 	case <-tm.ctx.Done():
@@ -212,6 +229,7 @@ func (tm *TabMonitor) handleEvent(ev interface{}) {
 					URL:         ev.Response.URL,
 					MimeType:    ev.Response.MimeType,
 					ContentSize: ev.Response.EncodedDataLength,
+				CreatedAt:   time.Now(),
 				}
 				tm.trackerMu.Unlock()
 			}
@@ -306,6 +324,19 @@ func (tm *TabMonitor) shouldCaptureBody(mimeType string, size float64) bool {
 	}
 
 	return false
+}
+
+// cleanExpiredRequests removes request tracker entries older than maxAge
+// to prevent memory leaks from responses that never finish loading.
+func (tm *TabMonitor) cleanExpiredRequests(maxAge time.Duration) {
+	cutoff := time.Now().Add(-maxAge)
+	tm.trackerMu.Lock()
+	defer tm.trackerMu.Unlock()
+	for id, info := range tm.requestTracker {
+		if info.CreatedAt.Before(cutoff) {
+			delete(tm.requestTracker, id)
+		}
+	}
 }
 
 // matchContentType checks if a mime type matches a pattern (supports wildcards like "text/*").
