@@ -2,6 +2,7 @@ package logger
 
 import (
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -237,9 +238,9 @@ func TestTabRegistry(t *testing.T) {
 }
 
 func TestGenerateTabID(t *testing.T) {
-	// Generate a few tab IDs and verify they are unique and sequential
+	// Generate tab IDs beyond 9 to verify proper decimal formatting
 	ids := make(map[string]bool)
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 15; i++ {
 		id := GenerateTabID()
 		if ids[id] {
 			t.Errorf("GenerateTabID returned duplicate ID: %s", id)
@@ -248,6 +249,12 @@ func TestGenerateTabID(t *testing.T) {
 
 		if !strings.HasPrefix(id, "tab-") {
 			t.Errorf("GenerateTabID returned ID without 'tab-' prefix: %s", id)
+		}
+
+		// Extract the numeric suffix and verify it's a valid decimal number
+		numStr := strings.TrimPrefix(id, "tab-")
+		if _, err := strconv.Atoi(numStr); err != nil {
+			t.Errorf("GenerateTabID returned non-numeric suffix: %s (full ID: %s)", numStr, id)
 		}
 	}
 }
