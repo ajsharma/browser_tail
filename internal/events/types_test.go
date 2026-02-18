@@ -23,8 +23,12 @@ func TestNewLogEvent(t *testing.T) {
 	if event.EventType != "test.event" {
 		t.Errorf("expected EventType 'test.event', got %s", event.EventType)
 	}
-	if event.Data["key"] != "value" {
-		t.Errorf("expected Data['key'] 'value', got %v", event.Data["key"])
+	data, ok := event.Data.(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected Data to be map[string]interface{}, got %T", event.Data)
+	}
+	if data["key"] != "value" {
+		t.Errorf("expected Data['key'] 'value', got %v", data["key"])
 	}
 
 	// Verify timestamp is valid and within range
@@ -38,9 +42,9 @@ func TestNewLogEvent(t *testing.T) {
 }
 
 func TestLogEventJSON(t *testing.T) {
-	event := NewLogEvent("example.com", "tab-1", "page.navigate", map[string]interface{}{
-		"url":      "https://example.com",
-		"referrer": "",
+	event := NewLogEvent("example.com", "tab-1", "page.navigate", &PageNavigateData{
+		URL:      "https://example.com",
+		Referrer: "",
 	})
 
 	data, err := json.Marshal(event)
@@ -85,14 +89,19 @@ func TestNewSessionStartEvent(t *testing.T) {
 	if event.TabID != "_session" {
 		t.Errorf("expected TabID '_session', got %s", event.TabID)
 	}
-	if event.Data["session_id"] != "session-123" {
-		t.Errorf("expected session_id 'session-123', got %v", event.Data["session_id"])
+
+	data, ok := event.Data.(*SessionStartData)
+	if !ok {
+		t.Fatalf("expected Data to be *SessionStartData, got %T", event.Data)
 	}
-	if event.Data["chrome_pid"] != 12345 {
-		t.Errorf("expected chrome_pid 12345, got %v", event.Data["chrome_pid"])
+	if data.SessionID != "session-123" {
+		t.Errorf("expected SessionID 'session-123', got %v", data.SessionID)
 	}
-	if event.Data["browser_tail_version"] != "1.0.0" {
-		t.Errorf("expected version '1.0.0', got %v", event.Data["browser_tail_version"])
+	if data.ChromePID != 12345 {
+		t.Errorf("expected ChromePID 12345, got %v", data.ChromePID)
+	}
+	if data.BrowserTailVersion != "1.0.0" {
+		t.Errorf("expected BrowserTailVersion '1.0.0', got %v", data.BrowserTailVersion)
 	}
 }
 
@@ -105,17 +114,22 @@ func TestNewTabCreatedEvent(t *testing.T) {
 	if event.Site != "example.com" {
 		t.Errorf("expected Site 'example.com', got %s", event.Site)
 	}
-	if event.Data["session_id"] != "session-123" {
-		t.Errorf("expected session_id 'session-123', got %v", event.Data["session_id"])
+
+	data, ok := event.Data.(*TabCreatedData)
+	if !ok {
+		t.Fatalf("expected Data to be *TabCreatedData, got %T", event.Data)
 	}
-	if event.Data["target_id"] != "target-456" {
-		t.Errorf("expected target_id 'target-456', got %v", event.Data["target_id"])
+	if data.SessionID != "session-123" {
+		t.Errorf("expected SessionID 'session-123', got %v", data.SessionID)
 	}
-	if event.Data["title"] != "Example" {
-		t.Errorf("expected title 'Example', got %v", event.Data["title"])
+	if data.TargetID != "target-456" {
+		t.Errorf("expected TargetID 'target-456', got %v", data.TargetID)
 	}
-	if event.Data["url"] != "https://example.com" {
-		t.Errorf("expected url 'https://example.com', got %v", event.Data["url"])
+	if data.Title != "Example" {
+		t.Errorf("expected Title 'Example', got %v", data.Title)
+	}
+	if data.URL != "https://example.com" {
+		t.Errorf("expected URL 'https://example.com', got %v", data.URL)
 	}
 }
 
@@ -125,8 +139,13 @@ func TestNewTabClosedEvent(t *testing.T) {
 	if event.EventType != EventMetaTabClosed {
 		t.Errorf("expected EventType %s, got %s", EventMetaTabClosed, event.EventType)
 	}
-	if event.Data["duration_seconds"] != 123.45 {
-		t.Errorf("expected duration_seconds 123.45, got %v", event.Data["duration_seconds"])
+
+	data, ok := event.Data.(*TabClosedData)
+	if !ok {
+		t.Fatalf("expected Data to be *TabClosedData, got %T", event.Data)
+	}
+	if data.DurationSeconds != 123.45 {
+		t.Errorf("expected DurationSeconds 123.45, got %v", data.DurationSeconds)
 	}
 }
 
@@ -139,14 +158,19 @@ func TestNewSiteChangedEvent(t *testing.T) {
 	if event.Site != "old.com" {
 		t.Errorf("expected Site 'old.com', got %s", event.Site)
 	}
-	if event.Data["old_site"] != "old.com" {
-		t.Errorf("expected old_site 'old.com', got %v", event.Data["old_site"])
+
+	data, ok := event.Data.(*SiteChangedData)
+	if !ok {
+		t.Fatalf("expected Data to be *SiteChangedData, got %T", event.Data)
 	}
-	if event.Data["new_site"] != "new.com" {
-		t.Errorf("expected new_site 'new.com', got %v", event.Data["new_site"])
+	if data.OldSite != "old.com" {
+		t.Errorf("expected OldSite 'old.com', got %v", data.OldSite)
 	}
-	if event.Data["new_url"] != "https://new.com/page" {
-		t.Errorf("expected new_url 'https://new.com/page', got %v", event.Data["new_url"])
+	if data.NewSite != "new.com" {
+		t.Errorf("expected NewSite 'new.com', got %v", data.NewSite)
+	}
+	if data.NewURL != "https://new.com/page" {
+		t.Errorf("expected NewURL 'https://new.com/page', got %v", data.NewURL)
 	}
 }
 
@@ -159,8 +183,13 @@ func TestNewSiteEnteredEvent(t *testing.T) {
 	if event.Site != "new.com" {
 		t.Errorf("expected Site 'new.com', got %s", event.Site)
 	}
-	if event.Data["from_site"] != "old.com" {
-		t.Errorf("expected from_site 'old.com', got %v", event.Data["from_site"])
+
+	data, ok := event.Data.(*SiteEnteredData)
+	if !ok {
+		t.Fatalf("expected Data to be *SiteEnteredData, got %T", event.Data)
+	}
+	if data.FromSite != "old.com" {
+		t.Errorf("expected FromSite 'old.com', got %v", data.FromSite)
 	}
 }
 
@@ -170,14 +199,19 @@ func TestNewPageNavigateEvent(t *testing.T) {
 	if event.EventType != EventPageNavigate {
 		t.Errorf("expected EventType %s, got %s", EventPageNavigate, event.EventType)
 	}
-	if event.Data["url"] != "https://example.com/page" {
-		t.Errorf("expected url 'https://example.com/page', got %v", event.Data["url"])
+
+	data, ok := event.Data.(*PageNavigateData)
+	if !ok {
+		t.Fatalf("expected Data to be *PageNavigateData, got %T", event.Data)
 	}
-	if event.Data["referrer"] != "https://example.com" {
-		t.Errorf("expected referrer 'https://example.com', got %v", event.Data["referrer"])
+	if data.URL != "https://example.com/page" {
+		t.Errorf("expected URL 'https://example.com/page', got %v", data.URL)
 	}
-	if event.Data["navigation_type"] != "link" {
-		t.Errorf("expected navigation_type 'link', got %v", event.Data["navigation_type"])
+	if data.Referrer != "https://example.com" {
+		t.Errorf("expected Referrer 'https://example.com', got %v", data.Referrer)
+	}
+	if data.NavigationType != "link" {
+		t.Errorf("expected NavigationType 'link', got %v", data.NavigationType)
 	}
 }
 
@@ -187,8 +221,13 @@ func TestNewPageLoadEvent(t *testing.T) {
 	if event.EventType != EventPageLoad {
 		t.Errorf("expected EventType %s, got %s", EventPageLoad, event.EventType)
 	}
-	if event.Data["url"] != "https://example.com" {
-		t.Errorf("expected url 'https://example.com', got %v", event.Data["url"])
+
+	data, ok := event.Data.(*PageLoadData)
+	if !ok {
+		t.Fatalf("expected Data to be *PageLoadData, got %T", event.Data)
+	}
+	if data.URL != "https://example.com" {
+		t.Errorf("expected URL 'https://example.com', got %v", data.URL)
 	}
 }
 
@@ -198,8 +237,13 @@ func TestNewPageDOMReadyEvent(t *testing.T) {
 	if event.EventType != EventPageDOMReady {
 		t.Errorf("expected EventType %s, got %s", EventPageDOMReady, event.EventType)
 	}
-	if event.Data["url"] != "https://example.com" {
-		t.Errorf("expected url 'https://example.com', got %v", event.Data["url"])
+
+	data, ok := event.Data.(*PageDOMReadyData)
+	if !ok {
+		t.Fatalf("expected Data to be *PageDOMReadyData, got %T", event.Data)
+	}
+	if data.URL != "https://example.com" {
+		t.Errorf("expected URL 'https://example.com', got %v", data.URL)
 	}
 }
 
