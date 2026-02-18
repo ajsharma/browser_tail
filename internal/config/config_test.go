@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -217,6 +218,38 @@ func TestValidate(t *testing.T) {
 			err := cfg.Validate()
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestExampleConfigs(t *testing.T) {
+	// Find example config files relative to this test file's location.
+	// The examples/ directory is at the repo root: ../../examples/
+	patterns := []string{"../../examples/*.yaml", "../../examples/*.yml"}
+
+	files := make([]string, 0, len(patterns))
+	for _, pattern := range patterns {
+		matches, err := filepath.Glob(pattern)
+		if err != nil {
+			t.Fatalf("Glob(%q) failed: %v", pattern, err)
+		}
+		files = append(files, matches...)
+	}
+
+	if len(files) == 0 {
+		t.Skip("no example config files found in examples/")
+	}
+
+	for _, path := range files {
+		name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+		t.Run(name, func(t *testing.T) {
+			cfg, err := LoadFromFile(path)
+			if err != nil {
+				t.Fatalf("LoadFromFile(%s) failed: %v", path, err)
+			}
+			if err := cfg.Validate(); err != nil {
+				t.Fatalf("Validate() failed for %s: %v", path, err)
 			}
 		})
 	}
