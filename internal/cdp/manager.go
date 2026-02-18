@@ -62,7 +62,9 @@ func (m *Manager) Start(ctx context.Context) error {
 
 		// Wait for Chrome to be ready
 		if err := WaitForChrome(m.config.ChromePort, 30*time.Second); err != nil {
-			_ = m.chromeProcess.Stop() // Best effort cleanup
+			if stopErr := m.chromeProcess.Stop(); stopErr != nil {
+				log.Printf("Warning: failed to stop Chrome during cleanup: %v", stopErr)
+			}
 			return fmt.Errorf("chrome not ready: %w", err)
 		}
 
