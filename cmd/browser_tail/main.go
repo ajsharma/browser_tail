@@ -19,11 +19,6 @@ import (
 	"github.com/ajsharma/browser_tail/internal/logger"
 )
 
-var (
-	cfg        = config.DefaultConfig()
-	configFile string
-)
-
 var rootCmd = &cobra.Command{
 	Use:   "browser_tail",
 	Short: "Capture Chrome browser activity to structured JSONL logs",
@@ -44,36 +39,38 @@ Example:
 }
 
 func init() {
+	defaults := config.DefaultConfig()
+
 	// Connection flags
-	rootCmd.Flags().StringVarP(&cfg.ChromePort, "port", "p", cfg.ChromePort,
+	rootCmd.Flags().StringP("port", "p", defaults.ChromePort,
 		"Chrome remote debugging port")
-	rootCmd.Flags().BoolVar(&cfg.AutoLaunch, "launch", cfg.AutoLaunch,
+	rootCmd.Flags().Bool("launch", defaults.AutoLaunch,
 		"Auto-launch Chrome with debugging enabled")
 
 	// Output flags
-	rootCmd.Flags().StringVarP(&cfg.OutputDir, "output", "o", cfg.OutputDir,
+	rootCmd.Flags().StringP("output", "o", defaults.OutputDir,
 		"Output directory for log files")
-	rootCmd.Flags().DurationVar(&cfg.FlushInterval, "flush-interval", cfg.FlushInterval,
+	rootCmd.Flags().Duration("flush-interval", defaults.FlushInterval,
 		"Flush interval for log buffering")
-	rootCmd.Flags().IntVar(&cfg.BufferSize, "buffer-size", cfg.BufferSize,
+	rootCmd.Flags().Int("buffer-size", defaults.BufferSize,
 		"Buffer size per tab in bytes")
 
 	// Privacy flags
-	rootCmd.Flags().BoolVarP(&cfg.Redact, "redact", "r", cfg.Redact,
+	rootCmd.Flags().BoolP("redact", "r", defaults.Redact,
 		"Enable header redaction")
-	rootCmd.Flags().BoolVar(&cfg.CaptureBodies, "capture-bodies", cfg.CaptureBodies,
+	rootCmd.Flags().Bool("capture-bodies", defaults.CaptureBodies,
 		"Capture request/response bodies")
-	rootCmd.Flags().IntVar(&cfg.BodySizeLimitKB, "body-size-limit", cfg.BodySizeLimitKB,
+	rootCmd.Flags().Int("body-size-limit", defaults.BodySizeLimitKB,
 		"Max body size to capture in KB")
 
 	// Event filtering flags
-	rootCmd.Flags().BoolVar(&cfg.EnableNetwork, "network", cfg.EnableNetwork,
+	rootCmd.Flags().Bool("network", defaults.EnableNetwork,
 		"Enable network events")
-	rootCmd.Flags().BoolVar(&cfg.EnableConsole, "console", cfg.EnableConsole,
+	rootCmd.Flags().Bool("console", defaults.EnableConsole,
 		"Enable console events")
-	rootCmd.Flags().BoolVar(&cfg.EnableErrors, "errors", cfg.EnableErrors,
+	rootCmd.Flags().Bool("errors", defaults.EnableErrors,
 		"Enable error events")
-	rootCmd.Flags().BoolVar(&cfg.EnablePage, "page", cfg.EnablePage,
+	rootCmd.Flags().Bool("page", defaults.EnablePage,
 		"Enable page events")
 
 	// Add --no-* flags for disabling
@@ -87,7 +84,7 @@ func init() {
 	rootCmd.Version = config.Version
 
 	// Config file flag
-	rootCmd.Flags().StringVar(&configFile, "config", "", "Path to YAML config file")
+	rootCmd.Flags().String("config", "", "Path to YAML config file")
 
 	// Add control command
 	rootCmd.AddCommand(controlCmd)
@@ -96,7 +93,7 @@ func init() {
 	rootCmd.AddCommand(demoCmd)
 }
 
-// Control command variables.
+// Control command variables (PersistentFlags require pointer binding).
 var (
 	controlPort    string
 	controlTimeout time.Duration
@@ -358,12 +355,6 @@ func init() {
 	controlCmd.AddCommand(textCmd)
 }
 
-// Demo command variables.
-var (
-	demoTabs int
-	demoPort string
-)
-
 var demoCmd = &cobra.Command{
 	Use:   "demo",
 	Short: "Run a demo to validate browser_tail is working",
@@ -379,11 +370,14 @@ Example:
 }
 
 func init() {
-	demoCmd.Flags().IntVar(&demoTabs, "tabs", 2, "Number of demo tabs to open")
-	demoCmd.Flags().StringVarP(&demoPort, "port", "p", "9222", "Chrome remote debugging port")
+	demoCmd.Flags().Int("tabs", 2, "Number of demo tabs to open")
+	demoCmd.Flags().StringP("port", "p", "9222", "Chrome remote debugging port")
 }
 
 func runDemo(cmd *cobra.Command, args []string) error {
+	demoPort, _ := cmd.Flags().GetString("port")
+	demoTabs, _ := cmd.Flags().GetInt("tabs")
+
 	// Use demo-specific config
 	demoCfg := config.DefaultConfig()
 	demoCfg.AutoLaunch = true
@@ -475,22 +469,62 @@ func runDemo(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-func run(cmd *cobra.Command, args []string) error {
-	// Load config from file if specified
+// buildConfig constructs a Config from the command's flags, optionally loading
+// from a YAML file first. Flag values override file values; --no-* flags
+// override the positive counterparts.
+func buildConfig(cmd *cobra.Command) (*config.Config, error) {
+	configFile, _ := cmd.Flags().GetString("config")
+
+	var cfg *config.Config
 	if configFile != "" {
-		fileCfg, err := config.LoadFromFile(configFile)
+		var err error
+		cfg, err = config.LoadFromFile(configFile)
 		if err != nil {
-			return fmt.Errorf("failed to load config file: %w", err)
+			return nil, fmt.Errorf("failed to load config file: %w", err)
 		}
-		cfg = fileCfg
+	} else {
+		cfg = config.DefaultConfig()
 	}
 
-	// Validate configuration
-	if err := cfg.Validate(); err != nil {
-		return fmt.Errorf("invalid configuration: %w", err)
+	// Override with flag values (only if explicitly set)
+	if cmd.Flags().Changed("port") {
+		cfg.ChromePort, _ = cmd.Flags().GetString("port")
+	}
+	if cmd.Flags().Changed("launch") {
+		cfg.AutoLaunch, _ = cmd.Flags().GetBool("launch")
+	}
+	if cmd.Flags().Changed("output") {
+		cfg.OutputDir, _ = cmd.Flags().GetString("output")
+	}
+	if cmd.Flags().Changed("flush-interval") {
+		cfg.FlushInterval, _ = cmd.Flags().GetDuration("flush-interval")
+	}
+	if cmd.Flags().Changed("buffer-size") {
+		cfg.BufferSize, _ = cmd.Flags().GetInt("buffer-size")
+	}
+	if cmd.Flags().Changed("redact") {
+		cfg.Redact, _ = cmd.Flags().GetBool("redact")
+	}
+	if cmd.Flags().Changed("capture-bodies") {
+		cfg.CaptureBodies, _ = cmd.Flags().GetBool("capture-bodies")
+	}
+	if cmd.Flags().Changed("body-size-limit") {
+		cfg.BodySizeLimitKB, _ = cmd.Flags().GetInt("body-size-limit")
+	}
+	if cmd.Flags().Changed("network") {
+		cfg.EnableNetwork, _ = cmd.Flags().GetBool("network")
+	}
+	if cmd.Flags().Changed("console") {
+		cfg.EnableConsole, _ = cmd.Flags().GetBool("console")
+	}
+	if cmd.Flags().Changed("errors") {
+		cfg.EnableErrors, _ = cmd.Flags().GetBool("errors")
+	}
+	if cmd.Flags().Changed("page") {
+		cfg.EnablePage, _ = cmd.Flags().GetBool("page")
 	}
 
-	// Handle --no-* flags (these override config file)
+	// --no-* flags always win
 	if noNetwork, _ := cmd.Flags().GetBool("no-network"); noNetwork {
 		cfg.EnableNetwork = false
 	}
@@ -505,6 +539,19 @@ func run(cmd *cobra.Command, args []string) error {
 	}
 	if noRedact, _ := cmd.Flags().GetBool("no-redact"); noRedact {
 		cfg.Redact = false
+	}
+
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid configuration: %w", err)
+	}
+
+	return cfg, nil
+}
+
+func run(cmd *cobra.Command, args []string) error {
+	cfg, err := buildConfig(cmd)
+	if err != nil {
+		return err
 	}
 
 	// Create output directory
