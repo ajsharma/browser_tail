@@ -1,3 +1,7 @@
+// Tests in this file do not require a running Chrome instance.
+// Future tests that launch or connect to a real Chrome process should be placed
+// in a separate file with a //go:build integration constraint so they are skipped
+// by default in CI and only run with: go test -tags=integration ./...
 package cdp
 
 import (

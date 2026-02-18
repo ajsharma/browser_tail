@@ -1,3 +1,6 @@
+// Tests in this file use httptest servers and do not require a running Chrome instance.
+// Future tests that connect to a real Chrome process should be placed in a separate
+// file with a //go:build integration constraint.
 package cdp
 
 import (
