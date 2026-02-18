@@ -89,8 +89,10 @@ func (tm *TabMonitor) Start(browserCtx context.Context) error {
 	)
 	defer cancel()
 
-	// Store targetCtx for body capture
+	// Store targetCtx for body capture (synchronized for goroutine access)
+	tm.mu.Lock()
 	tm.targetCtx = targetCtx
+	tm.mu.Unlock()
 
 	// Enable required CDP domains
 	if err := chromedp.Run(targetCtx,
@@ -360,7 +362,11 @@ func matchContentType(actual, pattern string) bool {
 
 // captureBody retrieves and logs the response body.
 func (tm *TabMonitor) captureBody(requestID network.RequestID, info *responseInfo, site, tabID string) {
-	if tm.targetCtx == nil {
+	tm.mu.RLock()
+	tCtx := tm.targetCtx
+	tm.mu.RUnlock()
+
+	if tCtx == nil {
 		return
 	}
 
@@ -368,7 +374,7 @@ func (tm *TabMonitor) captureBody(requestID network.RequestID, info *responseInf
 	var body []byte
 	var base64Encoded bool
 
-	err := chromedp.Run(tm.targetCtx, chromedp.ActionFunc(func(ctx context.Context) error {
+	err := chromedp.Run(tCtx, chromedp.ActionFunc(func(ctx context.Context) error {
 		result, err := network.GetResponseBody(requestID).Do(ctx)
 		if err != nil {
 			return err
