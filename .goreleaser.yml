@@ -62,9 +62,6 @@ brews:
     commit_author:
       name: goreleaserbot
       email: bot@goreleaser.com
-    dependencies:
-      - name: go
-        type: build
     install: |
       bin.install "browser_tail"
     test: |
